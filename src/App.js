@@ -110,7 +110,14 @@ const [signupForm, setSignupForm] = useState({
       case 'newcase':
         return <NewCase onComplete={() => setCurrentPage('cases')} />;
       case 'cases':
-        return <Cases onStartNewCase={() => setCurrentPage('newcase')} />;
+                return (
+          <Cases
+            onStartNewCase={() => setCurrentPage('newcase')}
+            onOpenFDR={() => setCurrentPage('fdr')}
+            onOpenCVR={() => setCurrentPage('cvr')}
+            onOpenCorrelate={() => setCurrentPage('correlate')}
+          />
+        );
       case 'fdr':
         return <FDR />;
       case 'cvr':
