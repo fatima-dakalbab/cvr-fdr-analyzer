@@ -14,6 +14,10 @@ import {Eye,
 import Dashboard from './pages/Dashboard';
 import NewCase from './pages/NewCasePage';
 import Cases from './pages/Cases';
+import FDR from './pages/FDR';
+import CVR from './pages/CVR';
+import Correlate from './pages/Correlate';
+import Reports from './pages/Report';
 
 const CVRFDRApp = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -107,6 +111,14 @@ const [signupForm, setSignupForm] = useState({
         return <NewCase onComplete={() => setCurrentPage('cases')} />;
       case 'cases':
         return <Cases onStartNewCase={() => setCurrentPage('newcase')} />;
+      case 'fdr':
+        return <FDR />;
+      case 'cvr':
+        return <CVR />;
+      case 'correlate':
+        return <Correlate />;
+      case 'reports':
+        return <Reports />;
       default:
         return null;
     }
@@ -117,40 +129,36 @@ const [signupForm, setSignupForm] = useState({
       <div className="min-h-screen bg-gray-50">
         <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
           <div className="px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-8"></div>
-              <h1 className="text-2xl font-bold" style={{ color: '#019348' }}>
-                  CVR/FDR Analyzer
-                </h1>
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                    type="text"
-                    placeholder="Search cases, analysis or help"
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2"
+            <div className="flex items-center gap-6">
+              <h1 className="text-2xl font-bold shrink-0" style={{ color: '#019348' }}>
+                CVR/FDR Analyzer
+              </h1>
+              <div className="relative flex-1 max-w-xl">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <input
+                     type="text"
+                  placeholder="Search cases, analysis or help"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
-                </div>
               </div>
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center ap-4 ml-auto">
                 <button
                   type="button"
                   className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-emerald-600"
                 >
-                  <HelpCircle className="w-5 h-5" />
-                  Help Center
-                </button>
+                <HelpCircle className="w-5 h-5" /> Help Center </button>
                 <div className="relative">
                     <button
                     type="button"
                     onClick={() => setShowNotifications(!showNotifications)}
-                    className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg"> 
+                     className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg"> 
                     <Bell className="w-6 h-6" />
                   <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
                   </button>
                   {showNotifications && (
                     <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border py-2">
                       <div className="px-4 py-2 border-b font-semibold">Notifications</div>
-                       {notifications.map((notification) => (
+                      {notifications.map((notification) => (
                         <div
                           key={notification.id}
                           className="px-4 py-3 hover:bg-gray-50 border-b cursor-pointer"
@@ -164,7 +172,7 @@ const [signupForm, setSignupForm] = useState({
                   )}
                 </div>
                 <div className="relative">
-                   <button
+                  <button
                     type="button"
                     onClick={() => setShowUserMenu(!showUserMenu)}
                     className="flex items-center space-x-2 p-2 hover:bg-gray-100 rounded-lg"
@@ -194,6 +202,7 @@ const [signupForm, setSignupForm] = useState({
                   )}
                 </div>
               </div>
+            </div>
           </div>
         </header>
 
@@ -215,22 +224,40 @@ const [signupForm, setSignupForm] = useState({
               </button>
               <button
                 type="button"
-                className="flex w-full items-center space-x-3 px-4 py-3 text-gray-700 hover:bg-gray-50 rounded-lg"
+                onClick={() => setCurrentPage('fdr')}
+                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
+                  currentPage === 'fdr'
+                    ? 'text-white shadow'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                style={currentPage === 'fdr' ? { backgroundColor: '#019348' } : {}}
               >
                 <Activity className="w-5 h-5" />
                 <span>FDR Module</span>
               </button>
               <button
                 type="button"
-                className="flex w-full items-center space-x-3 px-4 py-3 text-gray-700 hover:bg-gray-50 rounded-lg"
+                onClick={() => setCurrentPage('cvr')}
+                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
+                  currentPage === 'cvr'
+                    ? 'text-white shadow'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                style={currentPage === 'cvr' ? { backgroundColor: '#019348' } : {}}
               >
                 <Radio className="w-5 h-5" />
                 <span>CVR Module</span>
               </button>
               <button
                 type="button"
-                className="flex w-full items-center space-x-3 px-4 py-3 text-gray-700 hover:bg-gray-50 rounded-lg"
-              >
+                onClick={() => setCurrentPage('correlate')}
+                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
+                  currentPage === 'correlate'
+                    ? 'text-white shadow'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                style={currentPage === 'correlate' ? { backgroundColor: '#019348' } : {}}
+                >
                 <GitMerge className="w-5 h-5" />
                 <span>Correlate FDR & CVR</span>
               </button>
@@ -249,7 +276,13 @@ const [signupForm, setSignupForm] = useState({
               </button>
               <button
                 type="button"
-                className="flex w-full items-center space-x-3 px-4 py-3 text-gray-700 hover:bg-gray-50 rounded-lg"
+                onClick={() => setCurrentPage('reports')}
+                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
+                  currentPage === 'reports'
+                    ? 'text-white shadow'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                style={currentPage === 'reports' ? { backgroundColor: '#019348' } : {}}
               >
                 <FileBarChart className="w-5 h-5" />
                 <span>Generate Reports</span>
