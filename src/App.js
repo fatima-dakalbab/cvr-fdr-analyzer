@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import MapCases from "./components/MapCases";
 import {
   Eye, EyeOff, Bell, Search, Home, FileText, Radio, Activity,
   GitMerge, FileBarChart, HelpCircle, Plus, FolderOpen, Clock, Map, ChevronDown
@@ -196,7 +197,7 @@ const CVRFDRApp = () => {
                   </ResponsiveContainer>
                 </div>
 
-                <div className="bg-white rounded-xl shadow-md p-6">
+                {/* <div className="bg-white rounded-xl shadow-md p-6">
                   <h3 className="text-lg font-bold mb-4">Cases on Map</h3>
                   <div className="space-y-3">
                     {mapLocations.map((loc, i) => (
@@ -209,7 +210,8 @@ const CVRFDRApp = () => {
                       </div>
                     ))}
                   </div>
-                </div>
+                </div> */}
+                <MapCases />
               </div>
 
               <div className="bg-white rounded-xl shadow-md p-6">
