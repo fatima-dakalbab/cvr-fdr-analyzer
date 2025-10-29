@@ -11,6 +11,7 @@ import {
   Legend,
 } from 'recharts';
 import MapCases from '../components/MapCases';
+import { cases } from '../data/cases';
 
 const chartData = [
   { month: 'Jan', accidents: 2, incidents: 1 },
@@ -21,29 +22,7 @@ const chartData = [
   { month: 'Jun', accidents: 2, incidents: 4 },
 ];
 
-const recentCases = [
-  {
-    date: '2025-02-11',
-    organization: 'GCAA',
-    examiner: 'Eng. Ahmed',
-    caseNumber: 'AAI-UAE-2025-001',
-    caseName: 'Dubai Creek Runway Excursion',
-  },
-  {
-    date: '2025-03-06',
-    organization: 'GCAA',
-    examiner: 'Dr. Hessa',
-    caseNumber: 'AAI-UAE-2025-004',
-    caseName: 'Sharjah Desert UAV Incident',
-  },
-  {
-    date: '2025-05-14',
-    organization: 'Etihad Airways',
-    examiner: 'Capt. Khalid',
-    caseNumber: 'AAI-UAE-2025-009',
-    caseName: 'Abu Dhabi Mid-Air Near Miss',
-  },
-];
+const recentCases = cases.slice(0, 3);
 
 const actionCards = [
   {
@@ -59,11 +38,11 @@ const actionCards = [
   {
     title: 'Open recent',
     icon: Clock,
-    onClickKey: 'openCases',
+    onClickKey: 'openRecent',
   },
 ];
 
-const Dashboard = ({ currentUser = '', onStartNewCase = () => {}, onOpenCases = () => {} }) => {
+const Dashboard = ({ currentUser = '', onStartNewCase = () => {}, onOpenCases = () => {}, onOpenCaseDetails = () => {} }) => {
   const handleAction = (key) => {
     if (key === 'startNewCase') {
       onStartNewCase();
@@ -71,6 +50,10 @@ const Dashboard = ({ currentUser = '', onStartNewCase = () => {}, onOpenCases = 
 
     if (key === 'openCases') {
       onOpenCases();
+    }
+
+    if (key === 'openRecent' && recentCases[0]) {
+      onOpenCaseDetails(recentCases[0].caseNumber);
     }
   };
 
@@ -128,8 +111,12 @@ const Dashboard = ({ currentUser = '', onStartNewCase = () => {}, onOpenCases = 
               </tr>
             </thead>
             <tbody>
-              {recentCases.map((caseItem, index) => (
-                <tr key={caseItem.caseNumber} className="hover:bg-gray-50 border-b">
+              {recentCases.map((caseItem) => (
+                <tr
+                  key={caseItem.caseNumber}
+                  className="hover:bg-gray-50 border-b cursor-pointer"
+                  onClick={() => onOpenCaseDetails(caseItem.caseNumber)}
+                >
                   <td className="px-4 py-3 text-sm">{caseItem.date}</td>
                   <td className="px-4 py-3 text-sm">{caseItem.organization}</td>
                   <td className="px-4 py-3 text-sm">{caseItem.examiner}</td>

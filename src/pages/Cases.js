@@ -8,48 +8,49 @@ import {
     Trash2,
 } from 'lucide-react';
 
-const cases = [
-    {
-        caseNumber: 'AAI-UAE-2025-001',
-        caseName: 'Dubai Creek Runway Excursion',
-        module: 'CVR & FDR',
-        lastUpdated: '2025-06-03',
-        status: 'Complete',
-        owner: 'Eng. Ahmed Al Mansoori',
-    },
-    {
-        caseNumber: 'AAI-UAE-2025-004',
-        caseName: 'Sharjah Desert UAV Incident',
-        module: 'FDR',
-        lastUpdated: '2025-05-28',
-        status: 'In Progress',
-        owner: 'Dr. Hessa Al Suwaidi',
-    },
-    {
-        caseNumber: 'AAI-UAE-2025-009',
-        caseName: 'Abu Dhabi Mid-Air Near Miss',
-        module: 'CVR',
-        lastUpdated: '2025-05-16',
-        status: 'Pending Review',
-        owner: 'Capt. Khalid Al Hameli',
-    },
-    {
-        caseNumber: 'AAI-UAE-2025-013',
-        caseName: 'Al Ain Night Landing Deviation',
-        module: 'CVR & FDR',
-        lastUpdated: '2025-05-09',
-        status: 'Data Required',
-        owner: 'Salem Al Marri',
-    },
-    {
-        caseNumber: 'AAI-UAE-2025-017',
-        caseName: 'Ras Al Khaimah Rotorcraft Incident',
-        module: 'FDR',
-        lastUpdated: '2025-04-28',
-        status: 'Complete',
-        owner: 'Mariam Al Zarouni',
-    },
-];
+// const cases = [
+//     {
+//         caseNumber: 'AAI-UAE-2025-001',
+//         caseName: 'Dubai Creek Runway Excursion',
+//         module: 'CVR & FDR',
+//         lastUpdated: '2025-06-03',
+//         status: 'Complete',
+//         owner: 'Eng. Ahmed Al Mansoori',
+//     },
+//     {
+//         caseNumber: 'AAI-UAE-2025-004',
+//         caseName: 'Sharjah Desert UAV Incident',
+//         module: 'FDR',
+//         lastUpdated: '2025-05-28',
+//         status: 'In Progress',
+//         owner: 'Dr. Hessa Al Suwaidi',
+//     },
+//     {
+//         caseNumber: 'AAI-UAE-2025-009',
+//         caseName: 'Abu Dhabi Mid-Air Near Miss',
+//         module: 'CVR',
+//         lastUpdated: '2025-05-16',
+//         status: 'Pending Review',
+//         owner: 'Capt. Khalid Al Hameli',
+//     },
+//     {
+//         caseNumber: 'AAI-UAE-2025-013',
+//         caseName: 'Al Ain Night Landing Deviation',
+//         module: 'CVR & FDR',
+//         lastUpdated: '2025-05-09',
+//         status: 'Data Required',
+//         owner: 'Salem Al Marri',
+//     },
+//     {
+//         caseNumber: 'AAI-UAE-2025-017',
+//         caseName: 'Ras Al Khaimah Rotorcraft Incident',
+//         module: 'FDR',
+//         lastUpdated: '2025-04-28',
+//         status: 'Complete',
+//         owner: 'Mariam Al Zarouni',
+//     },
+// ];
+import { cases } from '../data/cases';
 
 const statusStyles = {
     Complete: 'bg-emerald-100 text-emerald-700',
@@ -58,13 +59,19 @@ const statusStyles = {
     'Data Required': 'bg-rose-100 text-rose-700',
 };
 
-const Cases = ({ onStartNewCase, onOpenFDR, onOpenCVR, onOpenCorrelate }) => {
+const Cases = ({ onStartNewCase, onOpenFDR, onOpenCVR, onOpenCorrelate, onOpenCaseDetails }) => {
     const [selectedCaseNumber, setSelectedCaseNumber] = useState(null);
 
     const selectedCase = useMemo(
         () => cases.find((caseItem) => caseItem.caseNumber === selectedCaseNumber) || null,
         [selectedCaseNumber],
     );
+
+    const handleNavigate = (callback) => {
+        if (selectedCaseNumber) {
+            callback?.(selectedCaseNumber);
+        }
+    };
 
     return (
         <div className="max-w-7xl mx-auto space-y-6">
@@ -123,8 +130,7 @@ const Cases = ({ onStartNewCase, onOpenFDR, onOpenCVR, onOpenCorrelate }) => {
                                 return (
                                     <tr
                                         key={caseItem.caseNumber}
-                                        className={`border-b transition-colors ${isSelected ? 'bg-emerald-50/60 border-emerald-200' : 'hover:bg-gray-50'
-                                            }`}
+                                        className={`border-b transition-colors ${isSelected ? 'bg-emerald-50/60 border-emerald-200' : 'hover:bg-gray-50'}`}
                                     >
                                         <td className="px-4 py-4">
                                             <label className="flex items-center justify-center">
@@ -144,8 +150,7 @@ const Cases = ({ onStartNewCase, onOpenFDR, onOpenCVR, onOpenCorrelate }) => {
                                         <td className="px-4 py-4 text-sm text-gray-600">{caseItem.lastUpdated}</td>
                                         <td className="px-4 py-4 text-sm">
                                             <span
-                                                className={`px-3 py-1 rounded-full text-xs font-semibold ${statusStyles[caseItem.status] || 'bg-gray-100 text-gray-600'
-                                                    }`}
+                                                className={`px-3 py-1 rounded-full text-xs font-semibold ${statusStyles[caseItem.status] || 'bg-gray-100 text-gray-600'}`}
                                             >
                                                 {caseItem.status}
                                             </span>
@@ -153,7 +158,12 @@ const Cases = ({ onStartNewCase, onOpenFDR, onOpenCVR, onOpenCorrelate }) => {
                                         <td className="px-4 py-4 text-sm text-gray-700">{caseItem.owner}</td>
                                         <td className="px-4 py-4 text-sm text-right">
                                             <div className="flex items-center justify-end gap-2 text-gray-500">
-                                                <button type="button" className="p-2 hover:text-emerald-600" title="View">
+                                                 <button
+                                                    type="button"
+                                                    onClick={() => onOpenCaseDetails?.(caseItem.caseNumber)}
+                                                    className="p-2 hover:text-emerald-600"
+                                                    title="View"
+                                                >
                                                     <Eye className="w-4 h-4" />
                                                 </button>
                                                 <button type="button" className="p-2 hover:text-emerald-600" title="Edit">
@@ -181,21 +191,28 @@ const Cases = ({ onStartNewCase, onOpenFDR, onOpenCVR, onOpenCorrelate }) => {
                         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                             <button
                                 type="button"
-                                onClick={onOpenFDR}
+                                onClick={() => onOpenCaseDetails?.(selectedCase.caseNumber)}
+                                className="w-full sm:w-auto px-5 py-2 rounded-lg bg-emerald-500 text-white font-semibold hover:bg-emerald-600"
+                            >
+                                View Case Details
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleNavigate(onOpenFDR)}
                                 className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
                             >
                                 FDR Analysis
                             </button>
                             <button
                                 type="button"
-                                onClick={onOpenCVR}
+                                onClick={() => handleNavigate(onOpenCVR)}
                                 className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
                             >
                                 CVR Analysis
                             </button>
                             <button
                                 type="button"
-                                onClick={onOpenCorrelate}
+                                onClick={() => handleNavigate(onOpenCorrelate)}
                                 className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
                             >
                                 Correlate

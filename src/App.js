@@ -20,12 +20,14 @@ import FDR from './pages/FDR';
 import CVR from './pages/CVR';
 import Correlate from './pages/Correlate';
 import Reports from './pages/Report';
+import CaseDetails from './pages/CaseDetails';
 
 const CVRFDRApp = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState('');
   const [currentView, setCurrentView] = useState('login');
   const [currentPage, setCurrentPage] = useState('dashboard');
+  const [activeCaseNumber, setActiveCaseNumber] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -98,6 +100,35 @@ const CVRFDRApp = () => {
     setCurrentView('login');
     setShowUserMenu(false);
     setCurrentPage('dashboard');
+     setActiveCaseNumber(null);
+  };
+
+  const openCaseDetails = (caseNumber) => {
+    if (caseNumber) {
+      setActiveCaseNumber(caseNumber);
+    }
+    setCurrentPage('case-details');
+  };
+
+  const openFDR = (caseNumber) => {
+    if (caseNumber) {
+      setActiveCaseNumber(caseNumber);
+    }
+    setCurrentPage('fdr');
+  };
+
+  const openCVR = (caseNumber) => {
+    if (caseNumber) {
+      setActiveCaseNumber(caseNumber);
+    }
+    setCurrentPage('cvr');
+  };
+
+  const openCorrelate = (caseNumber) => {
+    if (caseNumber) {
+      setActiveCaseNumber(caseNumber);
+    }
+    setCurrentPage('correlate');
   };
 
   const renderPage = () => {
@@ -107,6 +138,8 @@ const CVRFDRApp = () => {
           <Dashboard
             onStartNewCase={() => setCurrentPage('newcase')}
             onOpenCases={() => setCurrentPage('cases')}
+            onOpenCaseDetails={openCaseDetails}
+            currentUser={currentUser}
           />
         );
       case 'newcase':
@@ -115,9 +148,20 @@ const CVRFDRApp = () => {
         return (
           <Cases
             onStartNewCase={() => setCurrentPage('newcase')}
-            onOpenFDR={() => setCurrentPage('fdr')}
-            onOpenCVR={() => setCurrentPage('cvr')}
-            onOpenCorrelate={() => setCurrentPage('correlate')}
+            onOpenFDR={openFDR}
+            onOpenCVR={openCVR}
+            onOpenCorrelate={openCorrelate}
+            onOpenCaseDetails={openCaseDetails}
+          />
+        );
+      case 'case-details':
+        return (
+          <CaseDetails
+            caseNumber={activeCaseNumber}
+            onBack={() => setCurrentPage('cases')}
+            onOpenFDR={openFDR}
+            onOpenCVR={openCVR}
+            onOpenCorrelate={openCorrelate}
           />
         );
       case 'fdr':
