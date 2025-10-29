@@ -560,7 +560,10 @@ export default function FDR() {
                     </button>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-1 text-sm text-gray-500">
+                        <p>Select a case to detect anomalies in FDR data.</p>
+                    </div>
                     <button
                         type="button"
                         disabled={!selectedCase}

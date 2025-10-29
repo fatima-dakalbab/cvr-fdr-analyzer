@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { Download, FileText, Info, Layers, Sparkles } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Download, FileText, Info, Layers, Search, Sparkles } from "lucide-react";
 
 const cases = [
   {
@@ -85,11 +85,115 @@ export default function Reports() {
   );
   const [exportFormat, setExportFormat] = useState("pdf");
   const [includeCover, setIncludeCover] = useState(true);
+  const [caseQuery, setCaseQuery] = useState("");
+  const [isCaseListOpen, setIsCaseListOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const comboboxRef = useRef(null);
 
   const selectedCase = useMemo(
     () => cases.find((caseItem) => caseItem.caseNumber === selectedCaseNumber),
     [selectedCaseNumber]
   );
+
+  const filteredCases = useMemo(() => {
+    const normalizedQuery = caseQuery.trim().toLowerCase();
+
+    if (!normalizedQuery) {
+      return cases;
+    }
+
+    return cases.filter((caseItem) => {
+      const searchableText = `${caseItem.caseNumber} ${caseItem.caseName} ${caseItem.module}`.toLowerCase();
+
+      return searchableText.includes(normalizedQuery);
+    });
+  }, [caseQuery]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (comboboxRef.current && !comboboxRef.current.contains(event.target)) {
+        setIsCaseListOpen(false);
+        setCaseQuery("");
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isCaseListOpen) {
+      return;
+    }
+
+    if (caseQuery.trim()) {
+      setHighlightedIndex(0);
+      return;
+    }
+
+    const selectedIndex = filteredCases.findIndex(
+      (caseItem) => caseItem.caseNumber === selectedCaseNumber
+    );
+
+    setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : 0);
+  }, [caseQuery, filteredCases, isCaseListOpen, selectedCaseNumber]);
+
+  const handleSelectCase = (caseItem) => {
+    setSelectedCaseNumber(caseItem.caseNumber);
+    setIsCaseListOpen(false);
+    setCaseQuery("");
+  };
+
+  const handleCaseInputFocus = (event) => {
+    setIsCaseListOpen(true);
+    setCaseQuery("");
+    event.target.select();
+  };
+
+  const handleCaseInputChange = (event) => {
+    setCaseQuery(event.target.value);
+    setIsCaseListOpen(true);
+  };
+
+  const handleCaseInputKeyDown = (event) => {
+    if (!isCaseListOpen && ["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
+      setIsCaseListOpen(true);
+      return;
+    }
+
+    switch (event.key) {
+      case "ArrowDown": {
+        event.preventDefault();
+        setHighlightedIndex((prevIndex) =>
+          Math.min(prevIndex + 1, Math.max(filteredCases.length - 1, 0))
+        );
+        break;
+      }
+      case "ArrowUp": {
+        event.preventDefault();
+        setHighlightedIndex((prevIndex) => Math.max(prevIndex - 1, 0));
+        break;
+      }
+      case "Enter": {
+        if (filteredCases[highlightedIndex]) {
+          event.preventDefault();
+          handleSelectCase(filteredCases[highlightedIndex]);
+        }
+        break;
+      }
+      case "Escape": {
+        setIsCaseListOpen(false);
+        setCaseQuery("");
+        break;
+      }
+      default:
+        break;
+    }
+  };
+
 
   const toggleSection = (sectionId) => {
     setSelectedSections((prev) => ({
@@ -126,19 +230,70 @@ export default function Reports() {
           <div className="space-y-2">
             <h3 className="text-lg font-semibold text-gray-800">Case</h3>
             <p className="text-sm text-gray-500">Choose the investigation you would like to generate a report for.</p>
-            <div className="relative max-w-lg">
-              <select
-                value={selectedCaseNumber}
-                onChange={(event) => setSelectedCaseNumber(event.target.value)}
-                className="w-full appearance-none rounded-lg border border-gray-300 bg-white py-2.5 pl-4 pr-12 text-gray-700 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-              >
-                {cases.map((caseItem) => (
-                  <option key={caseItem.caseNumber} value={caseItem.caseNumber}>
-                    {caseItem.caseNumber} — {caseItem.caseName}
-                  </option>
-                ))}
-              </select>
-              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">▼</span>
+            <div className="relative max-w-lg" ref={comboboxRef}>
+              <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-200">
+                <Search className="h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  role="combobox"
+                  aria-expanded={isCaseListOpen}
+                  aria-controls="case-combobox-list"
+                  aria-autocomplete="list"
+                  aria-activedescendant={
+                    isCaseListOpen && filteredCases[highlightedIndex]
+                      ? `case-option-${filteredCases[highlightedIndex].caseNumber}`
+                      : undefined
+                  }
+                  onFocus={handleCaseInputFocus}
+                  onChange={handleCaseInputChange}
+                  onKeyDown={handleCaseInputKeyDown}
+                  value={caseQuery || (selectedCase ? `${selectedCase.caseNumber} — ${selectedCase.caseName}` : "")}
+                  placeholder="Search cases by number, name, or module"
+                  className="h-8 w-full border-none bg-transparent text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none"
+                />
+              </div>
+              {isCaseListOpen && (
+                <div
+                  id="case-combobox-list"
+                  role="listbox"
+                  className="absolute z-10 mt-2 max-h-64 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg"
+                >
+                  {filteredCases.length > 0 ? (
+                    filteredCases.map((caseItem, index) => {
+                      const isHighlighted = index === highlightedIndex;
+                      const isSelected = caseItem.caseNumber === selectedCaseNumber;
+
+                      return (
+                        <button
+                          key={caseItem.caseNumber}
+                          type="button"
+                          role="option"
+                          id={`case-option-${caseItem.caseNumber}`}
+                          aria-selected={isSelected}
+                          onMouseEnter={() => setHighlightedIndex(index)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleSelectCase(caseItem)}
+                          className={`flex w-full flex-col items-start gap-1 px-4 py-3 text-left text-sm transition-colors ${isHighlighted
+                              ? "bg-emerald-50 text-emerald-900"
+                              : "text-gray-700 hover:bg-emerald-50/70"
+                            } ${isSelected ? "font-semibold" : "font-normal"}`}
+                        >
+                          <span>
+                            {caseItem.caseNumber} — {caseItem.caseName}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            Module: {caseItem.module} · Status: {caseItem.status}
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="px-4 py-6 text-center text-sm text-gray-500">
+                      No cases match your search. Try a different case number or keyword.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -154,9 +309,8 @@ export default function Reports() {
                 return (
                   <label
                     key={option.id}
-                    className={`flex h-full cursor-pointer flex-col gap-2 rounded-xl border p-4 transition-colors ${
-                      isActive ? "border-emerald-500 bg-emerald-50/70" : "border-gray-200 hover:border-emerald-400"
-                    }`}
+                    className={`flex h-full cursor-pointer flex-col gap-2 rounded-xl border p-4 transition-colors ${isActive ? "border-emerald-500 bg-emerald-50/70" : "border-gray-200 hover:border-emerald-400"
+                      }`}
                   >
                     <div className="flex items-start gap-3">
                       <input
@@ -189,11 +343,10 @@ export default function Reports() {
                 {exportFormats.map((format) => (
                   <label
                     key={format.id}
-                    className={`flex cursor-pointer items-center justify-between rounded-lg border px-4 py-3 transition-colors ${
-                      exportFormat === format.id
+                    className={`flex cursor-pointer items-center justify-between rounded-lg border px-4 py-3 transition-colors ${exportFormat === format.id
                         ? "border-emerald-500 bg-emerald-50/70"
                         : "border-gray-200 hover:border-emerald-400"
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-3">
                       <input

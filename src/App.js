@@ -21,6 +21,7 @@ import CVR from './pages/CVR';
 import Correlate from './pages/Correlate';
 import Reports from './pages/Report';
 import CaseDetails from './pages/CaseDetails';
+import HelpCenter from './pages/HelpCenter';
 
 const CVRFDRApp = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -190,6 +191,8 @@ const CVRFDRApp = () => {
         return <Correlate />;
       case 'reports':
         return <Reports />;
+      case 'help':
+        return <HelpCenter onOpenGettingStarted={() => setCurrentPage('help')} />;
       default:
         return null;
     }
@@ -222,9 +225,11 @@ const CVRFDRApp = () => {
               <div className="flex items-center ap-4 ml-auto">
                 <button
                   type="button"
+                  onClick={() => setCurrentPage('help')}
                   className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-emerald-600"
                 >
-                  <HelpCircle className="w-5 h-5" /> Help Center </button>
+                  <HelpCircle className="w-5 h-5" /> Help Center
+                </button>
                 <div className="relative">
                   <button
                     type="button"
