@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Eye,
   EyeOff,
@@ -64,6 +64,16 @@ const CVRFDRApp = () => {
     time: '1d ago',
   },
   ];
+
+  useEffect(() => {
+    const handleNavigateToCases = () => setCurrentPage('cases');
+
+    window.addEventListener('navigateToCases', handleNavigateToCases);
+
+    return () => {
+      window.removeEventListener('navigateToCases', handleNavigateToCases);
+    };
+  }, [setCurrentPage]);
 
   const handleLogin = () => {
     if (loginForm.username && loginForm.password) {

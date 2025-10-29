@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { PlaneTakeoff, AlertTriangle, Workflow, Download, ArrowRight, Loader2 } from "lucide-react";
+import { PlaneTakeoff, AlertTriangle, Workflow, Download, ArrowRight, Loader2, ChevronRight } from "lucide-react";
 import {
     Area,
     AreaChart,
@@ -192,6 +192,96 @@ const CASES = [
             emotion: "Elevated stress noted during high sink rate callout at 08:15:38.",
         },
     },
+    {
+        id: "AAI-UAE-2024-022",
+        title: "Emergency descent after cabin pressure loss",
+        aircraft: "Boeing 737-8 MAX",
+        flight: "GT312 - Sharjah to Cairo",
+        date: "19 Sep 2024",
+        location: "En-route over the Arabian Gulf",
+        summary:
+            "Rapid cabin depressurization during climb triggered oxygen mask deployment and an immediate return to departure airport.",
+        timeline: [
+            {
+                time: "06:12:08",
+                speaker: "First Officer",
+                role: "Pilot Monitoring",
+                transcript: "Climb checklist complete.",
+                emotion: "Calm",
+                emotionColor: "bg-emerald-100 text-emerald-700",
+                fdrEvent: "Cabin Rate",
+                fdrValue: "500 ft/min",
+            },
+            {
+                time: "06:14:20",
+                speaker: "ATC",
+                role: "Departure",
+                transcript: "Climb and maintain flight level 360.",
+                emotion: "Neutral",
+                emotionColor: "bg-slate-100 text-slate-700",
+                fdrEvent: "Altitude",
+                fdrValue: "18,000 ft",
+            },
+            {
+                time: "06:15:42",
+                speaker: "Captain",
+                role: "Pilot Flying",
+                transcript: "Setting climb power, keep an eye on cabin altitude.",
+                emotion: "Focused",
+                emotionColor: "bg-blue-100 text-blue-700",
+                fdrEvent: "Cabin Altitude",
+                fdrValue: "6,500 ft",
+            },
+            {
+                time: "06:16:18",
+                speaker: "Warning System",
+                role: "Aircraft",
+                transcript: "Cabin altitude warning.",
+                emotion: "Alert",
+                emotionColor: "bg-amber-100 text-amber-700",
+                fdrEvent: "Pressurization",
+                fdrValue: "Fault detected",
+            },
+            {
+                time: "06:16:33",
+                speaker: "Captain",
+                role: "Pilot Flying",
+                transcript: "Masks on, initiating emergency descent.",
+                emotion: "Assertive",
+                emotionColor: "bg-purple-100 text-purple-700",
+                fdrEvent: "Vertical Speed",
+                fdrValue: "-4,200 fpm",
+            },
+            {
+                time: "06:17:05",
+                speaker: "First Officer",
+                role: "Pilot Monitoring",
+                transcript: "Mayday declared, coordinating vectors with Muscat ATC.",
+                emotion: "Urgent",
+                emotionColor: "bg-red-100 text-red-700",
+                fdrEvent: "Heading",
+                fdrValue: "Turned to 180°",
+            },
+        ],
+        parameters: [
+            { time: "06:12", altitude: 8000, heading: 128, speed: 250 },
+            { time: "06:13", altitude: 12000, heading: 130, speed: 270 },
+            { time: "06:14", altitude: 17000, heading: 132, speed: 290 },
+            { time: "06:15", altitude: 21500, heading: 135, speed: 305 },
+            { time: "06:16", altitude: 19000, heading: 160, speed: 290 },
+            { time: "06:17", altitude: 14000, heading: 180, speed: 260 },
+        ],
+        keyParameters: {
+            altitude: "21,500 ft",
+            heading: "135°",
+            speed: "305 kts",
+            event: "Emergency descent initiated after cabin warning",
+        },
+        highlightedEmotion: {
+            speaker: "Captain",
+            emotion: "Decisive command issued during emergency descent call at 06:16:33.",
+        },
+    },
 ];
 
 const parameterColors = {
@@ -226,6 +316,11 @@ const Correlate = () => {
     );
 
     const primaryEvent = selectedCase?.timeline?.[3] || selectedCase?.timeline?.[0];
+
+    const handleNavigateToCases = () => {
+        window.dispatchEvent(new Event("navigateToCases"));
+    };
+
 
     if (workflowStage === "caseSelection") {
         return (
@@ -272,6 +367,27 @@ const Correlate = () => {
                             </button>
                         );
                     })}
+                    <button
+                        type="button"
+                        onClick={handleNavigateToCases}
+                        className="text-left rounded-2xl border-2 border-dashed border-emerald-200 bg-white transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                    >
+                        <div className="p-6 space-y-4">
+                            <div className="space-y-1">
+                                <span className="text-xs uppercase tracking-wide text-emerald-600">
+                                    Need a different investigation?
+                                </span>
+                                <h2 className="text-xl font-bold text-gray-900">Browse older cases</h2>
+                            </div>
+                            <p className="text-sm text-gray-600">
+                                Go to the Cases page to select from the full archive, then choose the analysis module you need.
+                            </p>
+                            <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-600">
+                                Go to Cases
+                                <ChevronRight className="w-4 h-4" />
+                            </span>
+                        </div>
+                    </button>
                 </div>
 
                 <div className="flex items-center justify-between">

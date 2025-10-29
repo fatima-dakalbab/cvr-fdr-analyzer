@@ -346,8 +346,8 @@ const TabButton = ({ isActive, onClick, children }) => (
         type="button"
         onClick={onClick}
         className={`px-5 py-2 rounded-full text-sm font-medium transition-colors border ${isActive
-                ? "bg-emerald-50 border-emerald-500 text-emerald-600"
-                : "border-gray-200 text-gray-500 hover:text-emerald-600"
+            ? "bg-emerald-50 border-emerald-500 text-emerald-600"
+            : "border-gray-200 text-gray-500 hover:text-emerald-600"
             }`}
     >
         {children}
@@ -466,6 +466,10 @@ export default function CVR() {
         setShowResults(false);
     };
 
+    const handleNavigateToCases = () => {
+        window.dispatchEvent(new Event("navigateToCases"));
+    };
+
     if (workflowStage === "caseSelection") {
         return (
             <div className="max-w-6xl mx-auto space-y-8">
@@ -512,6 +516,27 @@ export default function CVR() {
                             </button>
                         );
                     })}
+                    <button
+                        type="button"
+                        onClick={handleNavigateToCases}
+                        className="text-left rounded-2xl border-2 border-dashed border-emerald-200 bg-white transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                    >
+                        <div className="p-6 space-y-4">
+                            <div className="space-y-1">
+                                <span className="text-xs uppercase tracking-wide text-emerald-600">
+                                    Need a different investigation?
+                                </span>
+                                <h2 className="text-xl font-bold text-gray-900">Browse older cases</h2>
+                            </div>
+                            <p className="text-sm text-gray-600">
+                                Go to the Cases page to select from the full archive, then choose the analysis module you need.
+                            </p>
+                            <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-600">
+                                Go to Cases
+                                <ChevronRight className="w-4 h-4" />
+                            </span>
+                        </div>
+                    </button>
                 </div>
 
                 <div className="flex items-center justify-between">
