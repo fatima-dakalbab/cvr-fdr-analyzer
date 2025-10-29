@@ -110,7 +110,7 @@ const CVRFDRApp = () => {
     setCurrentView('login');
     setShowUserMenu(false);
     setCurrentPage('dashboard');
-     setActiveCaseNumber(null);
+    setActiveCaseNumber(null);
   };
 
   const openCaseDetails = (caseNumber) => {
@@ -140,6 +140,14 @@ const CVRFDRApp = () => {
     }
     setCurrentPage('correlate');
   };
+
+  const handleNavigateHome = () => {
+    setCurrentPage('dashboard');
+    setActiveCaseNumber(null);
+    setShowNotifications(false);
+    setShowUserMenu(false);
+  };
+
 
   const renderPage = () => {
     switch (currentPage) {
@@ -193,9 +201,16 @@ const CVRFDRApp = () => {
         <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
           <div className="px-6 py-4">
             <div className="flex items-center gap-6">
-              <h1 className="text-2xl font-bold shrink-0" style={{ color: '#019348' }}>
-                CVR/FDR Analyzer
-              </h1>
+              <button
+                type="button"
+                onClick={handleNavigateHome}
+                className="flex items-center gap-3 shrink-0 focus:outline-none bg-transparent border-0 p-0"
+              >
+                <img src="/toplogo.png" alt="CVR/FDR Analyzer logo" className="h-10 w-auto" />
+                <h1 className="text-2xl font-bold" style={{ color: '#019348' }}>
+                  CVR/FDR Analyzer
+                </h1>
+              </button>
               <div className="relative flex-1 max-w-xl">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
@@ -276,8 +291,8 @@ const CVRFDRApp = () => {
                 type="button"
                 onClick={() => setCurrentPage('dashboard')}
                 className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'dashboard'
-                    ? 'text-white shadow'
-                    : 'text-gray-700 hover:bg-gray-50'
+                  ? 'text-white shadow'
+                  : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 style={currentPage === 'dashboard' ? { backgroundColor: '#019348' } : {}}
               >
@@ -288,8 +303,8 @@ const CVRFDRApp = () => {
                 type="button"
                 onClick={() => setCurrentPage('cases')}
                 className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'cases'
-                    ? 'text-white shadow'
-                    : 'text-gray-700 hover:bg-gray-50'
+                  ? 'text-white shadow'
+                  : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 style={currentPage === 'cases' ? { backgroundColor: '#019348' } : {}}
               >
@@ -300,20 +315,20 @@ const CVRFDRApp = () => {
                 type="button"
                 onClick={() => setCurrentPage('fdr')}
                 className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'fdr'
-                    ? 'text-white shadow'
-                    : 'text-gray-700 hover:bg-gray-50'
+                  ? 'text-white shadow'
+                  : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 style={currentPage === 'fdr' ? { backgroundColor: '#019348' } : {}}
               >
-                <PlaneTakeoff  className="w-5 h-5" />
+                <PlaneTakeoff className="w-5 h-5" />
                 <span>FDR Module</span>
               </button>
               <button
                 type="button"
                 onClick={() => setCurrentPage('cvr')}
                 className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'cvr'
-                    ? 'text-white shadow'
-                    : 'text-gray-700 hover:bg-gray-50'
+                  ? 'text-white shadow'
+                  : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 style={currentPage === 'cvr' ? { backgroundColor: '#019348' } : {}}
               >
@@ -324,8 +339,8 @@ const CVRFDRApp = () => {
                 type="button"
                 onClick={() => setCurrentPage('correlate')}
                 className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'correlate'
-                    ? 'text-white shadow'
-                    : 'text-gray-700 hover:bg-gray-50'
+                  ? 'text-white shadow'
+                  : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 style={currentPage === 'correlate' ? { backgroundColor: '#019348' } : {}}
               >
@@ -336,8 +351,8 @@ const CVRFDRApp = () => {
                 type="button"
                 onClick={() => setCurrentPage('reports')}
                 className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'reports'
-                    ? 'text-white shadow'
-                    : 'text-gray-700 hover:bg-gray-50'
+                  ? 'text-white shadow'
+                  : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 style={currentPage === 'reports' ? { backgroundColor: '#019348' } : {}}
               >
