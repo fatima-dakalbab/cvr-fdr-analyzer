@@ -95,4 +95,7 @@ npm test
 
 ## License
 
-This project is provided without an explicit license. Contact the project maintainer before redistributing or using the code in production.
+This project is the intellectual property of the Aviation Center of Excellence (ACoE), developed in collaboration with the General Civil Aviation Authority (GCAA) and the University of Sharjah.
+
+All rights are reserved. This repository is private and not open to the public.
+Redistribution, reproduction, or use of the code—whether in whole or in part—is strictly prohibited without prior written permission from the project maintainers or the affiliated institutions.
