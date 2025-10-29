@@ -182,8 +182,7 @@ const Cases = ({ onStartNewCase, onOpenFDR, onOpenCVR, onOpenCorrelate }) => {
                             <button
                                 type="button"
                                 onClick={onOpenFDR}
-                                className="w-full sm:w-auto px-5 py-2 rounded-lg text-white font-semibold shadow"
-                                style={{ backgroundColor: '#019348' }}
+                                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
                             >
                                 FDR Analysis
                             </button>

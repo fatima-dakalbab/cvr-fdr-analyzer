@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import {Eye,
+import {
+  Eye,
   EyeOff,
   Bell,
   Search,
@@ -10,7 +11,8 @@ import {Eye,
   GitMerge,
   FileBarChart,
   HelpCircle,
-  ChevronDown,} from 'lucide-react';
+  ChevronDown,
+} from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import NewCase from './pages/NewCasePage';
 import Cases from './pages/Cases';
@@ -31,8 +33,8 @@ const CVRFDRApp = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-const [loginForm, setLoginForm] = useState({ username: '', password: '' });
-const [signupForm, setSignupForm] = useState({
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [signupForm, setSignupForm] = useState({
     firstName: '',
     lastName: '',
     username: '',
@@ -41,24 +43,24 @@ const [signupForm, setSignupForm] = useState({
     confirmPassword: '',
   });
   const [forgotEmail, setForgotEmail] = useState('');
-  const notifications = [ {
-      id: 1,
-      title: 'Case AAI-UAE-2025-001 updated',
-      desc: 'New report uploaded by Eng. Ahmed Al Mansoori',
-      time: '2h ago',
-    },
-    {
-      id: 2,
-      title: 'Reminder',
-      desc: 'Safety review meeting scheduled on 2025-08-30 at 10:00 AM.',
-      time: '5h ago',
-    },
-    {
-      id: 3,
-      title: 'Alert',
-      desc: 'CVR data for Case AAI-UAE-2025-013 is incomplete. Please re-upload',
-      time: '1d ago',
-    },
+  const notifications = [{
+    id: 1,
+    title: 'Case AAI-UAE-2025-001 updated',
+    desc: 'New report uploaded by Eng. Ahmed Al Mansoori',
+    time: '2h ago',
+  },
+  {
+    id: 2,
+    title: 'Reminder',
+    desc: 'Safety review meeting scheduled on 2025-08-30 at 10:00 AM.',
+    time: '5h ago',
+  },
+  {
+    id: 3,
+    title: 'Alert',
+    desc: 'CVR data for Case AAI-UAE-2025-013 is incomplete. Please re-upload',
+    time: '1d ago',
+  },
   ];
 
   const handleLogin = () => {
@@ -110,7 +112,7 @@ const [signupForm, setSignupForm] = useState({
       case 'newcase':
         return <NewCase onComplete={() => setCurrentPage('cases')} />;
       case 'cases':
-                return (
+        return (
           <Cases
             onStartNewCase={() => setCurrentPage('newcase')}
             onOpenFDR={() => setCurrentPage('fdr')}
@@ -142,25 +144,25 @@ const [signupForm, setSignupForm] = useState({
               </h1>
               <div className="relative flex-1 max-w-xl">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                  <input
-                     type="text"
+                <input
+                  type="text"
                   placeholder="Search cases, analysis or help"
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                />
               </div>
               <div className="flex items-center ap-4 ml-auto">
                 <button
                   type="button"
                   className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-emerald-600"
                 >
-                <HelpCircle className="w-5 h-5" /> Help Center </button>
+                  <HelpCircle className="w-5 h-5" /> Help Center </button>
                 <div className="relative">
-                    <button
+                  <button
                     type="button"
                     onClick={() => setShowNotifications(!showNotifications)}
-                     className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg"> 
+                    className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
                     <Bell className="w-6 h-6" />
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
                   </button>
                   {showNotifications && (
                     <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border py-2">
@@ -216,14 +218,13 @@ const [signupForm, setSignupForm] = useState({
         <div className="flex">
           <aside className="w-64 bg-white border-r min-h-screen">
             <nav className="p-4 space-y-2">
-                <button
+              <button
                 type="button"
                 onClick={() => setCurrentPage('dashboard')}
-                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
-                  currentPage === 'dashboard'
+                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'dashboard'
                     ? 'text-white shadow'
                     : 'text-gray-700 hover:bg-gray-50'
-                }`}
+                  }`}
                 style={currentPage === 'dashboard' ? { backgroundColor: '#019348' } : {}}
               >
                 <Home className="w-5 h-5" />
@@ -231,12 +232,23 @@ const [signupForm, setSignupForm] = useState({
               </button>
               <button
                 type="button"
-                onClick={() => setCurrentPage('fdr')}
-                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
-                  currentPage === 'fdr'
+                onClick={() => setCurrentPage('cases')}
+                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'cases'
                     ? 'text-white shadow'
                     : 'text-gray-700 hover:bg-gray-50'
-                }`}
+                  }`}
+                style={currentPage === 'cases' ? { backgroundColor: '#019348' } : {}}
+              >
+                <FileText className="w-5 h-5" />
+                <span>Cases</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage('fdr')}
+                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'fdr'
+                    ? 'text-white shadow'
+                    : 'text-gray-700 hover:bg-gray-50'
+                  }`}
                 style={currentPage === 'fdr' ? { backgroundColor: '#019348' } : {}}
               >
                 <Activity className="w-5 h-5" />
@@ -245,11 +257,10 @@ const [signupForm, setSignupForm] = useState({
               <button
                 type="button"
                 onClick={() => setCurrentPage('cvr')}
-                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
-                  currentPage === 'cvr'
+                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'cvr'
                     ? 'text-white shadow'
                     : 'text-gray-700 hover:bg-gray-50'
-                }`}
+                  }`}
                 style={currentPage === 'cvr' ? { backgroundColor: '#019348' } : {}}
               >
                 <Radio className="w-5 h-5" />
@@ -258,37 +269,22 @@ const [signupForm, setSignupForm] = useState({
               <button
                 type="button"
                 onClick={() => setCurrentPage('correlate')}
-                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
-                  currentPage === 'correlate'
+                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'correlate'
                     ? 'text-white shadow'
                     : 'text-gray-700 hover:bg-gray-50'
-                }`}
+                  }`}
                 style={currentPage === 'correlate' ? { backgroundColor: '#019348' } : {}}
-                >
+              >
                 <GitMerge className="w-5 h-5" />
                 <span>Correlate FDR & CVR</span>
               </button>
               <button
                 type="button"
-                onClick={() => setCurrentPage('cases')}
-                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
-                  currentPage === 'cases'
-                    ? 'text-white shadow'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-                style={currentPage === 'cases' ? { backgroundColor: '#019348' } : {}}
-              >
-                <FileText className="w-5 h-5" />
-                <span>Cases</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => setCurrentPage('reports')}
-                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
-                  currentPage === 'reports'
+                className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${currentPage === 'reports'
                     ? 'text-white shadow'
                     : 'text-gray-700 hover:bg-gray-50'
-                }`}
+                  }`}
                 style={currentPage === 'reports' ? { backgroundColor: '#019348' } : {}}
               >
                 <FileBarChart className="w-5 h-5" />
@@ -319,7 +315,7 @@ const [signupForm, setSignupForm] = useState({
           backgroundPosition: 'center',
         }}
       >
-       <img src="/gcaa-logo.png" alt="GCAA Logo" className="h-40 object-contain" />
+        <img src="/gcaa-logo.png" alt="GCAA Logo" className="h-40 object-contain" />
       </div>
 
       <div className="w-1/2 flex items-center justify-center p-8 bg-white">
@@ -367,7 +363,7 @@ const [signupForm, setSignupForm] = useState({
 
                 <div className="flex items-center justify-between">
                   <label className="flex items-center">
-                     <input
+                    <input
                       type="checkbox"
                       checked={rememberMe}
                       onChange={(e) => setRememberMe(e.target.checked)}
@@ -452,7 +448,7 @@ const [signupForm, setSignupForm] = useState({
 
                 <div>
                   <label className="block text-sm font-medium mb-2">Email</label>
-                   <input
+                  <input
                     type="email"
                     value={signupForm.email}
                     onChange={(e) => setSignupForm({ ...signupForm, email: e.target.value })}
@@ -463,7 +459,7 @@ const [signupForm, setSignupForm] = useState({
                 <div>
                   <label className="block text-sm font-medium mb-2">Password</label>
                   <div className="relative">
-                     <input
+                    <input
                       type={showPassword ? 'text' : 'password'}
                       value={signupForm.password}
                       onChange={(e) => setSignupForm({ ...signupForm, password: e.target.value })}
@@ -510,7 +506,7 @@ const [signupForm, setSignupForm] = useState({
                   />
                   <span className="ml-2 text-sm">I agree with terms and conditions</span>
                 </label>
-                     <button
+                <button
                   type="button"
                   onClick={handleSignup}
                   className="w-full text-white py-3 rounded-lg font-semibold shadow-md"
@@ -543,13 +539,13 @@ const [signupForm, setSignupForm] = useState({
                 <p className="text-gray-600">
                   Enter your email and we send you a password reset link.
                 </p>
-                </div>
+              </div>
 
               <div className="space-y-5">
                 <div>
                   <label className="block text-sm font-medium mb-2">Email</label>
 
-                   <input
+                  <input
                     type="email"
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
@@ -558,7 +554,7 @@ const [signupForm, setSignupForm] = useState({
                   />
                 </div>
 
-                 <button
+                <button
                   type="button"
                   onClick={() => alert('Reset link sent!')}
                   className="w-full text-white py-3 rounded-lg font-semibold shadow-md"
