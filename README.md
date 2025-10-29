@@ -1,70 +1,98 @@
-# Getting Started with Create React App
+# CVR/FDR Analyzer
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A single-page React application for aviation investigators to review cockpit voice recorder (CVR) and flight data recorder (FDR) cases. The dashboard surfaces high-level activity, provides quick entry points to case work, and links to focused tooling for timeline review, audio playback, correlation, and reporting.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- **Investigator dashboard** – Visualizes monthly incident/accident trends, maps case locations, and highlights recently accessed cases for quick follow-up.
+- **Case workspace** – Navigate through pending investigations, drill into case details, and jump directly to CVR, FDR, correlation, and reporting tools.
+- **Data correlation tools** – Dedicated views for pairing CVR transcripts with FDR parameters and producing shareable reports.
+- **Responsive layout** – Built with Tailwind CSS and Lucide icons for a polished experience on desktop and tablet form factors.
 
-### `npm start`
+## Prerequisites
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Before installing the JavaScript dependencies ensure that you have the following software available locally:
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+- **Node.js** 18.0.0 or later (Node 20.x LTS recommended)
+- **npm** 9.x or later (ships with Node.js)
 
-### `npm test`
+You can verify your toolchain with:
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```bash
+node --version
+npm --version
+```
 
-### `npm run build`
+## One-time setup
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Install the project dependencies by running the helper script provided in this repository:
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```bash
+./install-requirements.sh
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+The script verifies that Node.js and npm are available before running `npm install` to pull in the dependencies listed in `package.json`.
 
-### `npm run eject`
+> **Note**: If you prefer to install dependencies manually, you can run `npm install` in the project root.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+## Running the application
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Start the development server and open the site in your browser:
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+```bash
+npm start
+```
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+The app is served at [http://localhost:3000](http://localhost:3000). The development server watches for file changes and hot-reloads the browser automatically.
 
-## Learn More
+## Building for production
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+Create an optimized production bundle in the `build/` directory:
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+```bash
+npm run build
+```
 
-### Code Splitting
+The output bundle is tree-shaken, minified, and ready to be deployed to your hosting platform of choice.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## Testing
 
-### Analyzing the Bundle Size
+Run the Create React App test runner in watch mode:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+```bash
+npm test
+```
 
-### Making a Progressive Web App
+## Project structure
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+```
+├── public/                # Static assets served as-is by CRA
+├── src/
+│   ├── components/        # Shared React components (e.g., map visualizations)
+│   ├── data/              # Mock datasets used to populate dashboards
+│   ├── pages/             # Feature-specific screens (dashboard, CVR, FDR, etc.)
+│   ├── App.js             # Main application shell and navigation
+│   └── index.js           # React entry point
+├── install-requirements.sh# Dependency installation helper script
+├── package.json           # npm metadata and dependency list
+└── README.md              # Project documentation (this file)
+```
 
-### Advanced Configuration
+## Available scripts
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+| Command | Description |
+| ------- | ----------- |
+| `npm start` | Runs the app in development mode with hot reload. |
+| `npm test` | Launches the unit test runner in watch mode. |
+| `npm run build` | Generates a production-optimized build. |
+| `npm run eject` | Copies CRA configuration locally (irreversible). |
 
-### Deployment
+## Troubleshooting
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+- **Port already in use**: The CRA dev server defaults to port 3000. Set `PORT=3001` (or another free port) before running `npm start` to use a different port.
+- **Dependency issues**: Delete the `node_modules/` directory and rerun `./install-requirements.sh`.
+- **Unsupported Node.js version**: Upgrade to the latest Active LTS release of Node.js.
 
-### `npm run build` fails to minify
+## License
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+This project is provided without an explicit license. Contact the project maintainer before redistributing or using the code in production.
