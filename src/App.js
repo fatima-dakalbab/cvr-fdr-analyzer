@@ -6,9 +6,9 @@ import {
   Search,
   Home,
   FileText,
-  Radio,
-  Activity,
-  GitMerge,
+  PlaneTakeoff,
+  AudioLines,
+  Workflow,
   FileBarChart,
   HelpCircle,
   ChevronDown,
@@ -295,7 +295,7 @@ const CVRFDRApp = () => {
                   }`}
                 style={currentPage === 'fdr' ? { backgroundColor: '#019348' } : {}}
               >
-                <Activity className="w-5 h-5" />
+                <PlaneTakeoff  className="w-5 h-5" />
                 <span>FDR Module</span>
               </button>
               <button
@@ -307,7 +307,7 @@ const CVRFDRApp = () => {
                   }`}
                 style={currentPage === 'cvr' ? { backgroundColor: '#019348' } : {}}
               >
-                <Radio className="w-5 h-5" />
+                <AudioLines className="w-5 h-5" />
                 <span>CVR Module</span>
               </button>
               <button
@@ -319,7 +319,7 @@ const CVRFDRApp = () => {
                   }`}
                 style={currentPage === 'correlate' ? { backgroundColor: '#019348' } : {}}
               >
-                <GitMerge className="w-5 h-5" />
+                <Workflow className="w-5 h-5" />
                 <span>Correlate FDR & CVR</span>
               </button>
               <button

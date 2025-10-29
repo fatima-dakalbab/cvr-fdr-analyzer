@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Calendar, MapPin, Plane, Tags, FileText, Mic, Radio, GitMerge, Clock3 } from 'lucide-react';
+import { ArrowLeft, Calendar, MapPin, Plane, Tags, FileText, AudioLines, PlaneTakeoff, Workflow, Clock3 } from 'lucide-react';
 import { getCaseByNumber } from '../data/cases';
 
 const statusColors = {
@@ -13,9 +13,9 @@ const statusColors = {
 };
 
 const analysisIcon = {
-  fdr: Radio,
-  cvr: Mic,
-  correlate: GitMerge,
+  fdr: PlaneTakeoff,
+  cvr: AudioLines,
+  correlate: Workflow,
 };
 
 const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate }) => {

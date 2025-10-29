@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -145,26 +145,35 @@ const transcriptionSnippets = [
     speaker: "Captain",
     text: "Engine vibration increasing — let's monitor closely.",
     confidence: "0.92",
+    startSeconds: 12,
   },
   {
     time: "00:00:28",
     speaker: "First Officer",
     text: "Copy, I'll adjust the climb profile and run the checklist.",
     confidence: "0.89",
+    startSeconds: 28,
   },
   {
     time: "00:00:46",
     speaker: "Observer",
     text: "Alert light just triggered again, capturing screenshots now.",
     confidence: "0.86",
+    startSeconds: 46,
   },
   {
     time: "00:01:04",
     speaker: "Captain",
     text: "Requesting vectors back to the field, declaring PAN-PAN.",
     confidence: "0.93",
+    startSeconds: 64,
   },
 ];
+
+const transcriptionPlaybackTrack = {
+  src: "/audio/case09-transcript-sync.wav",
+  downloadName: "case09-transcript-sync.wav",
+};
 
 const analysisAudioComparisons = [
   {
@@ -183,7 +192,6 @@ const analysisAudioComparisons = [
   },
 ];
 
-const fullTranscript = `Captain: Engine vibration increasing — let's monitor closely.\nFirst Officer: Copy, I'll adjust the climb profile and run the checklist.\nObserver: Alert light just triggered again, capturing screenshots now.\nCaptain: Requesting vectors back to the field, declaring PAN-PAN.`;
 const transcriptDownloadHref = "/transcripts/case09-full-transcript.txt";
 
 const analysisStages = [
@@ -354,6 +362,9 @@ export default function CVR() {
   const [progressIndex, setProgressIndex] = useState(0);
   const [showResults, setShowResults] = useState(false);
   const [activeTab, setActiveTab] = useState("analysis");
+  const [transcriptPlaybackTime, setTranscriptPlaybackTime] = useState(0);
+  const [activeTranscriptIndex, setActiveTranscriptIndex] = useState(-1);
+  const transcriptAudioRef = useRef(null);
 
   useEffect(() => {
     if (workflowStage === "caseSelection") {
@@ -446,6 +457,43 @@ export default function CVR() {
     setProgressIndex(0);
     setShowResults(false);
   };
+
+  useEffect(() => {
+    if (activeTab !== "transcription" && transcriptAudioRef.current) {
+      transcriptAudioRef.current.pause();
+      transcriptAudioRef.current.currentTime = 0;
+      setTranscriptPlaybackTime(0);
+      setActiveTranscriptIndex(-1);
+    }
+  }, [activeTab]);
+
+  const handleTranscriptAudioTimeUpdate = () => {
+    if (!transcriptAudioRef.current) return;
+    const { currentTime, duration, ended } = transcriptAudioRef.current;
+    setTranscriptPlaybackTime(currentTime);
+
+    if (ended && duration) {
+      setActiveTranscriptIndex(transcriptionSnippets.length - 1);
+      return;
+    }
+
+    let latestIndex = -1;
+    for (let i = 0; i < transcriptionSnippets.length; i += 1) {
+      if (currentTime >= transcriptionSnippets[i].startSeconds) {
+        latestIndex = i;
+      }
+    }
+    setActiveTranscriptIndex(latestIndex);
+  };
+
+  const revealedSnippets = transcriptionSnippets.filter((_, index) => index <= activeTranscriptIndex);
+  const transcriptProgressPercent = transcriptAudioRef.current?.duration
+    ? Math.min((transcriptPlaybackTime / transcriptAudioRef.current.duration) * 100, 100)
+    : 0;
+  const revealedTranscriptText =
+    revealedSnippets.length > 0
+      ? revealedSnippets.map((snippet) => `${snippet.speaker}: ${snippet.text}`).join("\n")
+      : "";
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -790,18 +838,70 @@ export default function CVR() {
                       <FileText className="w-4 h-4" /> Download transcript
                     </a>
                   </div>
-                  <pre className="whitespace-pre-wrap rounded-2xl border border-gray-200 bg-gray-50 p-5 text-sm text-gray-800">
-                    {fullTranscript}
-                  </pre>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {transcriptionSnippets.map((snippet) => (
-                      <div key={snippet.time} className="border border-gray-200 rounded-xl bg-white p-4 text-sm text-gray-700">
-                        <p className="text-xs uppercase tracking-wide text-gray-400">{snippet.time}</p>
-                        <p className="mt-1 font-semibold text-gray-900">{snippet.speaker}</p>
-                        <p className="mt-1">{snippet.text}</p>
-                        <p className="mt-2 text-xs text-gray-400">Confidence {snippet.confidence}</p>
+                  <div className="border border-gray-200 rounded-2xl bg-white p-5 space-y-4 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-400">Synchronized playback</p>
+                        <p className="text-sm font-semibold text-gray-900">Listen while the transcript reveals in real-time.</p>
                       </div>
-                    ))}
+                      <a
+                        href={transcriptionPlaybackTrack.src}
+                        download={transcriptionPlaybackTrack.downloadName}
+                        className="inline-flex items-center gap-2 rounded-full border border-emerald-200 px-3 py-1 text-xs font-medium text-emerald-600 transition hover:bg-emerald-50"
+                      >
+                        <FileText className="w-4 h-4" /> WAV
+                      </a>
+                    </div>
+                    <audio
+                      ref={transcriptAudioRef}
+                      controls
+                      preload="none"
+                      src={transcriptionPlaybackTrack.src}
+                      onTimeUpdate={handleTranscriptAudioTimeUpdate}
+                      onLoadedMetadata={handleTranscriptAudioTimeUpdate}
+                      onSeeked={handleTranscriptAudioTimeUpdate}
+                      onEnded={handleTranscriptAudioTimeUpdate}
+                      className="w-full rounded-xl border border-gray-200"
+                    >
+                      Your browser does not support the audio element.
+                    </audio>
+                    <div className="w-full h-2 rounded-full bg-gray-100 overflow-hidden">
+                      <div
+                        className="h-2 bg-emerald-500 transition-all duration-300"
+                        style={{ width: `${transcriptProgressPercent}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>{transcriptPlaybackTime.toFixed(1)}s</span>
+                      <span>{transcriptAudioRef.current?.duration ? `${transcriptAudioRef.current.duration.toFixed(1)}s total` : ""}</span>
+                    </div>
+                  </div>
+                  <pre className="whitespace-pre-wrap rounded-2xl border border-gray-200 bg-gray-50 p-5 text-sm text-gray-800 min-h-[140px] flex items-start">
+                    {revealedTranscriptText || (
+                      <span className="text-gray-400">Transcript lines will appear here as the audio advances.</span>
+                    )}
+                  </pre>
+                  <div className="grid md:grid-cols-2 gap-4 min-h-[120px]">
+                    {revealedSnippets.length === 0 ? (
+                      <div className="md:col-span-2 border border-dashed border-emerald-200 rounded-xl bg-emerald-50/50 p-6 text-sm text-emerald-700 text-center">
+                        Press play to watch the transcript populate as the cockpit audio progresses.
+                      </div>
+                    ) : (
+                      revealedSnippets.map((snippet, index) => (
+                        <div
+                          key={snippet.time}
+                          className="border border-gray-200 rounded-xl bg-white p-4 text-sm text-gray-700 shadow-sm transition"
+                          style={{
+                            boxShadow: index === revealedSnippets.length - 1 ? "0 10px 30px -15px rgba(16, 185, 129, 0.5)" : undefined,
+                          }}
+                        >
+                          <p className="text-xs uppercase tracking-wide text-gray-400">{snippet.time}</p>
+                          <p className="mt-1 font-semibold text-gray-900">{snippet.speaker}</p>
+                          <p className="mt-1">{snippet.text}</p>
+                          <p className="mt-2 text-xs text-gray-400">Confidence {snippet.confidence}</p>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               )}
