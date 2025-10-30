@@ -1,16 +1,25 @@
 import React, { useMemo, useState } from 'react';
-import { Check, CheckCircle2, UploadCloud } from 'lucide-react';
+import { Check, UploadCloud, X } from 'lucide-react';
 
 const steps = [
-  { title: 'Step 1', subtitle: 'Investigator' },
-  { title: 'Step 2', subtitle: 'Aircraft' },
-  { title: 'Step 3', subtitle: 'FDR Upload' },
-  { title: 'Step 4', subtitle: 'CVR Upload' },
-  { title: 'Step 5', subtitle: 'Complete' },
+  { title: 'Step 1', subtitle: 'Case Details' },
+  { title: 'Step 2', subtitle: 'Investigator' },
+  { title: 'Step 3', subtitle: 'Aircraft' },
+  { title: 'Step 4', subtitle: 'FDR Upload' },
+  { title: 'Step 5', subtitle: 'CVR & Review' },
 ];
+
+const initialCaseInfo = {
+  caseNumber: '',
+  caseName: '',
+  occurrenceDate: '',
+  summary: '',
+  tags: '',
+};
 
 const initialInvestigator = {
   name: '',
+  organization: '',
   phone: '',
   email: '',
   notes: '',
@@ -21,7 +30,14 @@ const initialAircraft = {
   aircraftType: '',
   operator: '',
   flightNumber: '',
+  location: '',
   dateOfFlight: '',
+};
+
+const initialUploadState = {
+  file: null,
+  notes: '',
+  willUploadLater: true,
 };
 
 const StepIndicator = ({ currentStep }) => (
@@ -55,7 +71,7 @@ const StepIndicator = ({ currentStep }) => (
   </ol>
 );
 
-const TextField = ({ id, label, type = 'text', value, onChange, placeholder }) => (
+const TextField = ({ id, label, type = 'text', value, onChange, placeholder, required = false }) => (
   <label className="flex flex-col space-y-1 text-sm font-medium text-gray-700">
     {label}
     <input
@@ -64,186 +80,448 @@ const TextField = ({ id, label, type = 'text', value, onChange, placeholder }) =
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
+      required={required}
       className="px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
     />
   </label>
 );
 
-const FileUploadField = ({ id, label, helperText, accept, onChange, fileName }) => (
-  <div className="space-y-3">
-    <p className="text-sm font-medium text-gray-700">{label}</p>
+const TextAreaField = ({ id, label, value, onChange, placeholder }) => (
+  <label className="flex flex-col space-y-1 text-sm font-medium text-gray-700">
+    {label}
+    <textarea
+      id={id}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      rows={4}
+      className="px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+    />
+  </label>
+);
+
+const FileUploadField = ({ id, label, helperText, accept, onChange, file, willUploadLater, onToggleLater, notes, onNotesChange }) => (
+  <div className="space-y-4">
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-sm font-medium text-gray-700">{label}</p>
+        {helperText && <p className="text-xs text-gray-500 mt-1">{helperText}</p>}
+      </div>
+      <label className="flex items-center gap-2 text-sm text-gray-600">
+        <input
+          type="checkbox"
+          checked={willUploadLater}
+          onChange={(event) => onToggleLater(event.target.checked)}
+        />
+        Upload later
+      </label>
+    </div>
+
     <label
       htmlFor={id}
-      className="flex flex-col items-center justify-center w-full border-2 border-dashed border-gray-200 rounded-xl py-12 bg-gray-50 hover:border-emerald-500 hover:bg-white transition-colors cursor-pointer"
+      className={`flex flex-col items-center justify-center w-full border-2 border-dashed rounded-xl py-12 transition-colors ${
+        willUploadLater
+          ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
+          : 'border-gray-200 bg-gray-50 hover:border-emerald-500 hover:bg-white cursor-pointer'
+      }`}
     >
       <UploadCloud className="w-12 h-12 text-emerald-500 mb-3" />
       <p className="text-base font-semibold text-gray-700">
-        {fileName ? fileName : 'Drag and drop files here'}
+        {file ? file.name : willUploadLater ? 'Upload will be handled later' : 'Drag and drop files here'}
       </p>
-      <p className="text-sm text-gray-500 mt-1">or click to browse</p>
+      {!willUploadLater && <p className="text-sm text-gray-500 mt-1">or click to browse</p>}
       <input
         id={id}
         type="file"
         accept={accept}
         onChange={(event) => onChange(event.target.files?.[0] || null)}
         className="hidden"
+        disabled={willUploadLater}
       />
     </label>
-    {helperText && <p className="text-xs text-gray-500">{helperText}</p>}
+
+    <TextAreaField
+      id={`${id}-notes`}
+      label="Notes"
+      value={notes}
+      onChange={onNotesChange}
+      placeholder="Additional context about this data upload"
+    />
   </div>
 );
 
-const ActionButtons = ({ currentStep, onBack, onNext }) => {
-  const isFirstStep = currentStep === 0;
-  const isLastStep = currentStep === steps.length - 1;
-
-  if (isLastStep) {
-    return null;
+const formatFileSize = (bytes) => {
+  if (!bytes || Number.isNaN(Number(bytes))) {
+    return '';
   }
 
-  return (
-    <div className="flex items-center justify-between mt-10">
-      <button
-        type="button"
-        onClick={onBack}
-        disabled={isFirstStep}
-        className={`px-5 py-3 rounded-lg border font-medium transition-colors ${
-          isFirstStep
-            ? 'border-gray-200 text-gray-400 cursor-not-allowed'
-            : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-        }`}
-      >
-        Back
-      </button>
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = bytes;
+  let unitIndex = 0;
 
-      <button
-        type="button"
-        onClick={onNext}
-        className="px-6 py-3 rounded-lg font-semibold text-white shadow-md"
-        style={{ backgroundColor: '#019348' }}
-      >
-        {currentStep === steps.length - 2 ? 'Finish' : 'Next Step'}
-      </button>
-    </div>
-  );
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 };
 
-const NewCaseWizard = ({ onComplete = () => {} }) => {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [investigator, setInvestigator] = useState(initialInvestigator);
-  const [aircraft, setAircraft] = useState(initialAircraft);
-  const [fdrFile, setFdrFile] = useState(null);
-  const [cvrFile, setCvrFile] = useState(null);
+const normalizeDate = (value) => {
+  if (!value) {
+    return '';
+  }
 
-  const isCompletionStep = currentStep === steps.length - 1;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return date.toISOString().slice(0, 10);
+};
+
+const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorMessage = '' }) => {
+  const [currentStep, setCurrentStep] = useState(0);
+  const [caseInfo, setCaseInfo] = useState(() => ({ ...initialCaseInfo }));
+  const [investigator, setInvestigator] = useState(() => ({ ...initialInvestigator }));
+  const [aircraft, setAircraft] = useState(() => ({ ...initialAircraft }));
+  const [fdrUpload, setFdrUpload] = useState(() => ({ ...initialUploadState }));
+  const [cvrUpload, setCvrUpload] = useState(() => ({ ...initialUploadState }));
+  const [localError, setLocalError] = useState('');
+
+  const resetState = () => {
+    setCurrentStep(0);
+    setCaseInfo({ ...initialCaseInfo });
+    setInvestigator({ ...initialInvestigator });
+    setAircraft({ ...initialAircraft });
+    setFdrUpload({ ...initialUploadState });
+    setCvrUpload({ ...initialUploadState });
+    setLocalError('');
+  };
+
+  const closeWizard = () => {
+    resetState();
+    onClose();
+  };
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      resetState();
+    }
+  }, [isOpen]);
+
+  const derivedData = useMemo(() => {
+    const hasFdrData = Boolean(fdrUpload.file && !fdrUpload.willUploadLater);
+    const hasCvrData = Boolean(cvrUpload.file && !cvrUpload.willUploadLater);
+
+    const module = hasFdrData && hasCvrData ? 'CVR & FDR' : hasFdrData ? 'FDR' : hasCvrData ? 'CVR' : 'CVR & FDR';
+    const status = hasFdrData && hasCvrData ? 'Analysis Not Started' : 'Data Incomplete';
+
+    const analyses = {
+      fdr: {
+        status: hasFdrData ? 'Ready for Analysis' : 'Data Not Uploaded',
+        lastRun: null,
+        summary: hasFdrData ? 'Awaiting FDR analysis.' : 'Upload required before analysis can begin.',
+      },
+      cvr: {
+        status: hasCvrData ? 'Ready for Analysis' : 'Data Not Uploaded',
+        lastRun: null,
+        summary: hasCvrData ? 'Awaiting CVR analysis.' : 'Upload required before analysis can begin.',
+      },
+      correlate: {
+        status: hasFdrData && hasCvrData ? 'Not Started' : 'Blocked',
+        lastRun: null,
+        summary:
+          hasFdrData && hasCvrData
+            ? 'Correlation can begin once initial analyses are completed.'
+            : 'Requires both FDR and CVR datasets to proceed.',
+      },
+    };
+
+    const attachments = [];
+    if (hasFdrData && fdrUpload.file) {
+      attachments.push({
+        name: fdrUpload.file.name,
+        size: formatFileSize(fdrUpload.file.size),
+        type: 'FDR',
+        uploadedBy: investigator.name || 'Unknown',
+        notes: fdrUpload.notes || '',
+      });
+    } else if (!hasFdrData && fdrUpload.notes) {
+      attachments.push({
+        name: 'FDR data pending upload',
+        size: '',
+        type: 'FDR',
+        uploadedBy: investigator.name || 'Unknown',
+        notes: fdrUpload.notes,
+        status: 'Pending',
+      });
+    }
+
+    if (hasCvrData && cvrUpload.file) {
+      attachments.push({
+        name: cvrUpload.file.name,
+        size: formatFileSize(cvrUpload.file.size),
+        type: 'CVR',
+        uploadedBy: investigator.name || 'Unknown',
+        notes: cvrUpload.notes || '',
+      });
+    } else if (!hasCvrData && cvrUpload.notes) {
+      attachments.push({
+        name: 'CVR data pending upload',
+        size: '',
+        type: 'CVR',
+        uploadedBy: investigator.name || 'Unknown',
+        notes: cvrUpload.notes,
+        status: 'Pending',
+      });
+    }
+
+    return {
+      module,
+      status,
+      analyses,
+      attachments,
+      hasFdrData,
+      hasCvrData,
+    };
+  }, [cvrUpload, fdrUpload, investigator.name]);
+
+  const validateStep = (step) => {
+    switch (step) {
+      case 0: {
+        if (!caseInfo.caseNumber || !caseInfo.caseName) {
+          setLocalError('Case number and case name are required.');
+          return false;
+        }
+        setLocalError('');
+        return true;
+      }
+      case 1: {
+        if (!investigator.name) {
+          setLocalError('Investigator name is required.');
+          return false;
+        }
+        setLocalError('');
+        return true;
+      }
+      case 2:
+        setLocalError('');
+        return true;
+      case 3:
+        setLocalError('');
+        return true;
+      default:
+        setLocalError('');
+        return true;
+    }
+  };
 
   const handleNext = () => {
+    if (!validateStep(currentStep)) {
+      return;
+    }
+
     setCurrentStep((step) => Math.min(step + 1, steps.length - 1));
   };
 
   const handleBack = () => {
+    setLocalError('');
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
-  const investigatorFields = useMemo(
-    () => [
-      {
-        id: 'investigator-name',
-        label: 'Name',
-        value: investigator.name,
-        onChange: (value) => setInvestigator((prev) => ({ ...prev, name: value })),
-        placeholder: 'Capt. Khalid',
-      },
-      {
-        id: 'investigator-phone',
-        label: 'Phone',
-        value: investigator.phone,
-        onChange: (value) => setInvestigator((prev) => ({ ...prev, phone: value })),
-        placeholder: '+971-50-123-4567',
-      },
-      {
-        id: 'investigator-email',
-        label: 'Email',
-        type: 'email',
-        value: investigator.email,
-        onChange: (value) => setInvestigator((prev) => ({ ...prev, email: value })),
-        placeholder: 'investigator@gcaa.gov',
-      },
-    ],
-    [investigator],
-  );
+  const buildPayload = () => {
+    const normalizedDate = normalizeDate(caseInfo.occurrenceDate || aircraft.dateOfFlight);
+    const tagsArray = caseInfo.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
 
-  const aircraftFields = useMemo(
-    () => [
-      {
-        id: 'aircraft-number',
-        label: 'Aircraft Number',
-        value: aircraft.aircraftNumber,
-        onChange: (value) => setAircraft((prev) => ({ ...prev, aircraftNumber: value })),
-        placeholder: 'A6-ADQ',
+    return {
+      caseNumber: caseInfo.caseNumber,
+      caseName: caseInfo.caseName,
+      owner: investigator.name,
+      organization: investigator.organization,
+      examiner: investigator.name,
+      module: derivedData.module,
+      status: derivedData.status,
+      summary: caseInfo.summary,
+      lastUpdated: normalizeDate(new Date()),
+      date: normalizedDate,
+      location: aircraft.location,
+      aircraftType: aircraft.aircraftType,
+      tags: tagsArray,
+      analyses: derivedData.analyses,
+      attachments: derivedData.attachments,
+      timeline: [],
+      investigator: {
+        ...investigator,
       },
-      {
-        id: 'aircraft-type',
-        label: 'Aircraft Type',
-        value: aircraft.aircraftType,
-        onChange: (value) => setAircraft((prev) => ({ ...prev, aircraftType: value })),
-        placeholder: 'Airbus A320',
+      aircraft: {
+        ...aircraft,
+        dateOfFlight: normalizeDate(aircraft.dateOfFlight),
       },
-      {
-        id: 'aircraft-operator',
-        label: 'Operator',
-        value: aircraft.operator,
-        onChange: (value) => setAircraft((prev) => ({ ...prev, operator: value })),
-        placeholder: 'Emirates Airlines',
-      },
-      {
-        id: 'flight-number',
-        label: 'Flight Number',
-        value: aircraft.flightNumber,
-        onChange: (value) => setAircraft((prev) => ({ ...prev, flightNumber: value })),
-        placeholder: 'EK204',
-      },
-      {
-        id: 'date-of-flight',
-        label: 'Date of Flight',
-        type: 'date',
-        value: aircraft.dateOfFlight,
-        onChange: (value) => setAircraft((prev) => ({ ...prev, dateOfFlight: value })),
-      },
-    ],
-    [aircraft],
+    };
+  };
+
+  const handleSubmit = async () => {
+    if (!validateStep(currentStep)) {
+      return;
+    }
+
+    const payload = buildPayload();
+
+    try {
+      await onSubmit(payload);
+      resetState();
+    } catch (error) {
+      setLocalError(error.message || 'Unable to create case.');
+    }
+  };
+
+  const renderCaseDetailsStep = () => (
+    <div className="space-y-6">
+      <h3 className="text-xl font-semibold text-gray-800">Case Information</h3>
+      <p className="text-sm text-gray-600">
+        Provide the core details of the investigation. You can update or enrich these fields later.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <TextField
+          id="case-number"
+          label="Case Number"
+          value={caseInfo.caseNumber}
+          onChange={(value) => setCaseInfo((prev) => ({ ...prev, caseNumber: value }))}
+          placeholder="AAI-UAE-2025-021"
+          required
+        />
+        <TextField
+          id="case-name"
+          label="Case Name"
+          value={caseInfo.caseName}
+          onChange={(value) => setCaseInfo((prev) => ({ ...prev, caseName: value }))}
+          placeholder="Engine anomaly during climb"
+          required
+        />
+        <TextField
+          id="occurrence-date"
+          label="Occurrence Date"
+          type="date"
+          value={caseInfo.occurrenceDate}
+          onChange={(value) => setCaseInfo((prev) => ({ ...prev, occurrenceDate: value }))}
+        />
+        <TextField
+          id="case-tags"
+          label="Tags"
+          value={caseInfo.tags}
+          onChange={(value) => setCaseInfo((prev) => ({ ...prev, tags: value }))}
+          placeholder="Runway excursion, Weather"
+        />
+      </div>
+      <TextAreaField
+        id="case-summary"
+        label="Summary"
+        value={caseInfo.summary}
+        onChange={(value) => setCaseInfo((prev) => ({ ...prev, summary: value }))}
+        placeholder="Briefly describe the occurrence, known factors, or urgent follow-up items."
+      />
+    </div>
   );
 
   const renderInvestigatorStep = () => (
     <div className="space-y-6">
       <h3 className="text-xl font-semibold text-gray-800">Investigator Information</h3>
+      <p className="text-sm text-gray-600">Tell us who owns this case so we can keep them informed.</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {investigatorFields.map((field) => (
-          <TextField key={field.id} {...field} />
-        ))}
-      </div>
-      <label className="flex flex-col space-y-1 text-sm font-medium text-gray-700">
-        Notes
-        <textarea
-          value={investigator.notes}
-          onChange={(event) =>
-            setInvestigator((prev) => ({ ...prev, notes: event.target.value }))
-          }
-          rows={4}
-          className="px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          placeholder="Additional context for the investigation"
+        <TextField
+          id="investigator-name"
+          label="Name"
+          value={investigator.name}
+          onChange={(value) => setInvestigator((prev) => ({ ...prev, name: value }))}
+          placeholder="Capt. Khalid"
+          required
         />
-      </label>
+        <TextField
+          id="investigator-organization"
+          label="Organization"
+          value={investigator.organization}
+          onChange={(value) => setInvestigator((prev) => ({ ...prev, organization: value }))}
+          placeholder="GCAA"
+        />
+        <TextField
+          id="investigator-phone"
+          label="Phone"
+          value={investigator.phone}
+          onChange={(value) => setInvestigator((prev) => ({ ...prev, phone: value }))}
+          placeholder="+971-50-123-4567"
+        />
+        <TextField
+          id="investigator-email"
+          label="Email"
+          type="email"
+          value={investigator.email}
+          onChange={(value) => setInvestigator((prev) => ({ ...prev, email: value }))}
+          placeholder="investigator@gcaa.gov"
+        />
+      </div>
+      <TextAreaField
+        id="investigator-notes"
+        label="Notes"
+        value={investigator.notes}
+        onChange={(value) => setInvestigator((prev) => ({ ...prev, notes: value }))}
+        placeholder="Additional context for the investigation team"
+      />
     </div>
   );
 
   const renderAircraftStep = () => (
     <div className="space-y-6">
       <h3 className="text-xl font-semibold text-gray-800">Aircraft Information</h3>
+      <p className="text-sm text-gray-600">
+        Capture the aircraft details associated with this occurrence.
+      </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {aircraftFields.map((field) => (
-          <TextField key={field.id} {...field} />
-        ))}
+        <TextField
+          id="aircraft-number"
+          label="Aircraft Tail Number"
+          value={aircraft.aircraftNumber}
+          onChange={(value) => setAircraft((prev) => ({ ...prev, aircraftNumber: value }))}
+          placeholder="A6-ADQ"
+        />
+        <TextField
+          id="aircraft-type"
+          label="Aircraft Type"
+          value={aircraft.aircraftType}
+          onChange={(value) => setAircraft((prev) => ({ ...prev, aircraftType: value }))}
+          placeholder="Airbus A320"
+        />
+        <TextField
+          id="aircraft-operator"
+          label="Operator"
+          value={aircraft.operator}
+          onChange={(value) => setAircraft((prev) => ({ ...prev, operator: value }))}
+          placeholder="Emirates Airlines"
+        />
+        <TextField
+          id="flight-number"
+          label="Flight Number"
+          value={aircraft.flightNumber}
+          onChange={(value) => setAircraft((prev) => ({ ...prev, flightNumber: value }))}
+          placeholder="EK204"
+        />
+        <TextField
+          id="aircraft-location"
+          label="Location"
+          value={aircraft.location}
+          onChange={(value) => setAircraft((prev) => ({ ...prev, location: value }))}
+          placeholder="Dubai Creek"
+        />
+        <TextField
+          id="date-of-flight"
+          label="Date of Flight"
+          type="date"
+          value={aircraft.dateOfFlight}
+          onChange={(value) => setAircraft((prev) => ({ ...prev, dateOfFlight: value }))}
+        />
       </div>
     </div>
   );
@@ -251,81 +529,197 @@ const NewCaseWizard = ({ onComplete = () => {} }) => {
   const renderFdrStep = () => (
     <div className="space-y-6">
       <h3 className="text-xl font-semibold text-gray-800">FDR Data Uploading</h3>
+      <p className="text-sm text-gray-600">
+        Upload the processed FDR dataset when it becomes available. You can opt to upload it later and leave a note for the team.
+      </p>
       <FileUploadField
         id="fdr-upload"
         label="Upload the processed FDR CSV"
-        helperText="Supported formats: .csv, .xls"
+        helperText="Supported formats: .csv, .xls, .xlsx"
         accept=".csv,.xls,.xlsx"
-        fileName={fdrFile?.name}
-        onChange={setFdrFile}
+        file={fdrUpload.file}
+        willUploadLater={fdrUpload.willUploadLater}
+        onToggleLater={(value) =>
+          setFdrUpload((prev) => ({
+            ...prev,
+            willUploadLater: value,
+            file: value ? null : prev.file,
+          }))
+        }
+        onChange={(file) =>
+          setFdrUpload((prev) => ({
+            ...prev,
+            file,
+            willUploadLater: !file ? prev.willUploadLater : false,
+          }))
+        }
+        notes={fdrUpload.notes}
+        onNotesChange={(value) => setFdrUpload((prev) => ({ ...prev, notes: value }))}
       />
     </div>
   );
 
-  const renderCvrStep = () => (
-    <div className="space-y-6">
-      <h3 className="text-xl font-semibold text-gray-800">CVR Data Uploading</h3>
-      <FileUploadField
-        id="cvr-upload"
-        label="Upload the CVR audio or transcript"
-        helperText="Supported formats: .wav, .mp3"
-        accept=".wav,.mp3"
-        fileName={cvrFile?.name}
-        onChange={setCvrFile}
-      />
-    </div>
-  );
+  const renderCvrStep = () => {
+    const { module, status, analyses } = derivedData;
 
-  const renderCompletionStep = () => (
-    <div className="flex flex-col items-center text-center space-y-4 py-10">
-      <CheckCircle2 className="w-20 h-20 text-emerald-500" />
-      <h3 className="text-2xl font-semibold text-gray-800">All set!</h3>
-      <p className="text-gray-600 max-w-xl">
-        Thank you for uploading the case data. You can now review the summary and findings in
-        the cases workspace.
-      </p>
-      <button
-        type="button"
-        onClick={onComplete}
-        className="px-6 py-3 rounded-lg font-semibold text-white shadow-md"
-        style={{ backgroundColor: '#019348' }}
-      >
-        View Cases
-      </button>
-    </div>
-  );
+    return (
+      <div className="space-y-6">
+        <h3 className="text-xl font-semibold text-gray-800">CVR Upload & Review</h3>
+        <p className="text-sm text-gray-600">
+          Upload the CVR audio or transcript. Before finishing, review the automatically generated case status below.
+        </p>
+        <FileUploadField
+          id="cvr-upload"
+          label="Upload the CVR audio or transcript"
+          helperText="Supported formats: .wav, .mp3, .txt"
+          accept=".wav,.mp3,.txt"
+          file={cvrUpload.file}
+          willUploadLater={cvrUpload.willUploadLater}
+          onToggleLater={(value) =>
+            setCvrUpload((prev) => ({
+              ...prev,
+              willUploadLater: value,
+              file: value ? null : prev.file,
+            }))
+          }
+          onChange={(file) =>
+            setCvrUpload((prev) => ({
+              ...prev,
+              file,
+              willUploadLater: !file ? prev.willUploadLater : false,
+            }))
+          }
+          notes={cvrUpload.notes}
+          onNotesChange={(value) => setCvrUpload((prev) => ({ ...prev, notes: value }))}
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
+            <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Overall Status</p>
+            <p className="mt-2 text-lg font-semibold text-emerald-900">{status}</p>
+            <p className="mt-1 text-sm text-emerald-700">Module coverage: {module}</p>
+          </div>
+          <div className="rounded-xl border border-gray-200 p-4">
+            <p className="text-sm font-semibold text-gray-800">FDR</p>
+            <p className="mt-1 text-sm text-gray-600">{analyses.fdr.status}</p>
+            <p className="mt-2 text-xs text-gray-500">{analyses.fdr.summary}</p>
+          </div>
+          <div className="rounded-xl border border-gray-200 p-4">
+            <p className="text-sm font-semibold text-gray-800">CVR</p>
+            <p className="mt-1 text-sm text-gray-600">{analyses.cvr.status}</p>
+            <p className="mt-2 text-xs text-gray-500">{analyses.cvr.summary}</p>
+          </div>
+          <div className="rounded-xl border border-gray-200 p-4 lg:col-span-3">
+            <p className="text-sm font-semibold text-gray-800">Correlation</p>
+            <p className="mt-1 text-sm text-gray-600">{analyses.correlate.status}</p>
+            <p className="mt-2 text-xs text-gray-500">{analyses.correlate.summary}</p>
+          </div>
+        </div>
+
+        {(localError || errorMessage) && (
+          <p className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+            {localError || errorMessage}
+          </p>
+        )}
+
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="px-5 py-3 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
+            disabled={isSubmitting}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            className="px-6 py-3 rounded-lg font-semibold text-white shadow-md"
+            style={{ backgroundColor: '#019348' }}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Creating…' : 'Create Case'}
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   const renderStepContent = () => {
     switch (currentStep) {
       case 0:
-        return renderInvestigatorStep();
+        return renderCaseDetailsStep();
       case 1:
-        return renderAircraftStep();
+        return renderInvestigatorStep();
       case 2:
-        return renderFdrStep();
+        return renderAircraftStep();
       case 3:
-        return renderCvrStep();
+        return renderFdrStep();
       default:
-        return renderCompletionStep();
+        return renderCvrStep();
     }
   };
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <div className="bg-white rounded-2xl shadow-lg p-8">
-      <div className="mb-10">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Start New Case</h2>
-        <p className="text-gray-600">
-          Follow the guided steps to provide investigation details and upload CVR/FDR data.
-        </p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-10 overflow-y-auto">
+      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl p-6 md:p-10 relative">
+        <button
+          type="button"
+          onClick={closeWizard}
+          className="absolute right-6 top-6 text-gray-400 hover:text-gray-600"
+          aria-label="Close"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="mb-10 pr-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Start New Case</h2>
+          <p className="text-gray-600">
+            Follow the guided steps to capture the investigation context. Data uploads can be deferred — the case will be
+            marked as incomplete until everything is available.
+          </p>
+        </div>
+
+        <StepIndicator currentStep={currentStep} />
+
+        {currentStep < steps.length - 1 && (localError || (!localError && currentStep < 3 && errorMessage)) && (
+          <p className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2 mb-4">
+            {localError || errorMessage}
+          </p>
+        )}
+
+        {renderStepContent()}
+
+        {currentStep < steps.length - 1 && (
+          <div className="flex items-center justify-between mt-10">
+            <button
+              type="button"
+              onClick={handleBack}
+              disabled={currentStep === 0}
+              className={`px-5 py-3 rounded-lg border font-medium transition-colors ${
+                currentStep === 0
+                  ? 'border-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Back
+            </button>
+
+            <button
+              type="button"
+              onClick={handleNext}
+              className="px-6 py-3 rounded-lg font-semibold text-white shadow-md"
+              style={{ backgroundColor: '#019348' }}
+            >
+              Next Step
+            </button>
+          </div>
+        )}
       </div>
-
-      <StepIndicator currentStep={currentStep} />
-
-      {renderStepContent()}
-
-      {!isCompletionStep && (
-        <ActionButtons currentStep={currentStep} onBack={handleBack} onNext={handleNext} />
-      )}
     </div>
   );
 };
