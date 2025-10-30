@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, FolderOpen, Clock } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -11,7 +11,7 @@ import {
   Legend,
 } from 'recharts';
 import MapCases from '../components/MapCases';
-import { cases } from '../data/cases';
+import { fetchCases } from '../api/cases';
 
 const chartData = [
   { month: 'Jan', accidents: 2, incidents: 1 },
@@ -21,8 +21,6 @@ const chartData = [
   { month: 'May', accidents: 1, incidents: 2 },
   { month: 'Jun', accidents: 2, incidents: 4 },
 ];
-
-const recentCases = cases.slice(0, 3);
 
 const actionCards = [
   {
@@ -43,6 +41,35 @@ const actionCards = [
 ];
 
 const Dashboard = ({ currentUser = '', onStartNewCase = () => {}, onOpenCases = () => {}, onOpenCaseDetails = () => {} }) => {
+  const [cases, setCases] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadCases = async () => {
+      setLoading(true);
+      try {
+        const data = await fetchCases();
+        setCases(Array.isArray(data) ? data : []);
+      } catch (error) {
+        setCases([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCases();
+  }, []);
+
+  const recentCases = useMemo(() => {
+    const sorted = [...cases].sort((a, b) => {
+      const dateA = a.lastUpdated || a.updatedAt;
+      const dateB = b.lastUpdated || b.updatedAt;
+      return new Date(dateB || 0) - new Date(dateA || 0);
+    });
+
+    return sorted.slice(0, 3);
+  }, [cases]);
+
   const handleAction = (key) => {
     if (key === 'startNewCase') {
       onStartNewCase();
@@ -117,9 +144,9 @@ const Dashboard = ({ currentUser = '', onStartNewCase = () => {}, onOpenCases = 
                   className="hover:bg-gray-50 border-b cursor-pointer"
                   onClick={() => onOpenCaseDetails(caseItem.caseNumber)}
                 >
-                  <td className="px-4 py-3 text-sm">{caseItem.date}</td>
-                  <td className="px-4 py-3 text-sm">{caseItem.organization}</td>
-                  <td className="px-4 py-3 text-sm">{caseItem.examiner}</td>
+                  <td className="px-4 py-3 text-sm">{caseItem.date || caseItem.lastUpdated || '—'}</td>
+                  <td className="px-4 py-3 text-sm">{caseItem.organization || '—'}</td>
+                  <td className="px-4 py-3 text-sm">{caseItem.examiner || '—'}</td>
                   <td
                     className="px-4 py-3 text-sm font-medium"
                     style={{ color: '#019348' }}
@@ -129,10 +156,17 @@ const Dashboard = ({ currentUser = '', onStartNewCase = () => {}, onOpenCases = 
                   <td className="px-4 py-3 text-sm">{caseItem.caseName}</td>
                 </tr>
               ))}
-              {recentCases.length === 0 && (
+              {!loading && recentCases.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-500">
                     No recent cases to display.
+                  </td>
+                </tr>
+              )}
+              {loading && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-500">
+                    Loading recent cases…
                   </td>
                 </tr>
               )}

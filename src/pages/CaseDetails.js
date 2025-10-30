@@ -1,6 +1,17 @@
-import React from 'react';
-import { ArrowLeft, Calendar, MapPin, Plane, Tags, FileText, AudioLines, PlaneTakeoff, Workflow, Clock3 } from 'lucide-react';
-import { getCaseByNumber } from '../data/cases';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ArrowLeft,
+  Calendar,
+  MapPin,
+  Plane,
+  Tags,
+  FileText,
+  AudioLines,
+  PlaneTakeoff,
+  Workflow,
+  Clock3,
+} from 'lucide-react';
+import { fetchCaseByNumber } from '../api/cases';
 
 const statusColors = {
   Complete: 'text-emerald-700 bg-emerald-100',
@@ -19,9 +30,85 @@ const analysisIcon = {
 };
 
 const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate }) => {
-  const caseData = getCaseByNumber(caseNumber);
+  const [caseData, setCaseData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  if (!caseData) {
+  useEffect(() => {
+    const loadCase = async () => {
+      if (!caseNumber) {
+        setCaseData(null);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError('');
+
+      try {
+        const data = await fetchCaseByNumber(caseNumber);
+        setCaseData(data);
+      } catch (err) {
+        setError(err.message || 'Unable to load case details');
+        setCaseData(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCase();
+  }, [caseNumber]);
+
+  const analysisCards = useMemo(() => {
+    const analyses = caseData?.analyses || {};
+
+    return [
+      {
+        key: 'fdr',
+        title: 'FDR Analysis',
+        status: analyses.fdr?.status || 'Not Started',
+        lastRun: analyses.fdr?.lastRun,
+        description: analyses.fdr?.summary || 'No summary available yet.',
+        action: () => onOpenFDR?.(caseNumber),
+      },
+      {
+        key: 'cvr',
+        title: 'CVR Analysis',
+        status: analyses.cvr?.status || 'Not Started',
+        lastRun: analyses.cvr?.lastRun,
+        description: analyses.cvr?.summary || 'No summary available yet.',
+        action: () => onOpenCVR?.(caseNumber),
+      },
+      {
+        key: 'correlate',
+        title: 'Correlation',
+        status: analyses.correlate?.status || 'Not Started',
+        lastRun: analyses.correlate?.lastRun,
+        description: analyses.correlate?.summary || 'No summary available yet.',
+        action: () => onOpenCorrelate?.(caseNumber),
+      },
+    ];
+  }, [caseData?.analyses, caseNumber, onOpenCVR, onOpenCorrelate, onOpenFDR]);
+
+  if (loading) {
+    return (
+      <div className="max-w-5xl mx-auto space-y-6">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Cases
+        </button>
+        <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
+          <p className="text-sm text-gray-500">Loading case details…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !caseData) {
     return (
       <div className="max-w-5xl mx-auto">
         <button
@@ -35,39 +122,16 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
         <div className="mt-10 bg-white shadow-md rounded-xl p-8 text-center">
           <h2 className="text-xl font-semibold text-gray-800">Case not found</h2>
           <p className="mt-2 text-gray-600">
-            The selected case could not be located. Please return to the cases list and select another case.
+            {error || 'The selected case could not be located. Please return to the cases list and select another case.'}
           </p>
         </div>
       </div>
     );
   }
 
-  const analysisCards = [
-    {
-      key: 'fdr',
-      title: 'FDR Analysis',
-      status: caseData.analyses.fdr.status,
-      lastRun: caseData.analyses.fdr.lastRun,
-      description: caseData.analyses.fdr.summary,
-      action: () => onOpenFDR?.(caseNumber),
-    },
-    {
-      key: 'cvr',
-      title: 'CVR Analysis',
-      status: caseData.analyses.cvr.status,
-      lastRun: caseData.analyses.cvr.lastRun,
-      description: caseData.analyses.cvr.summary,
-      action: () => onOpenCVR?.(caseNumber),
-    },
-    {
-      key: 'correlate',
-      title: 'Correlation',
-      status: caseData.analyses.correlate.status,
-      lastRun: caseData.analyses.correlate.lastRun,
-      description: caseData.analyses.correlate.summary,
-      action: () => onOpenCorrelate?.(caseNumber),
-    },
-  ];
+  const tags = Array.isArray(caseData.tags) ? caseData.tags : [];
+  const timeline = Array.isArray(caseData.timeline) ? caseData.timeline : [];
+  const attachments = Array.isArray(caseData.attachments) ? caseData.attachments : [];
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -90,19 +154,19 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
                 {caseData.status}
               </span>
               <span className="flex items-center gap-2 text-sm text-gray-600">
-                <Calendar className="w-4 h-4" /> Last updated {caseData.lastUpdated}
+                <Calendar className="w-4 h-4" /> Last updated {caseData.lastUpdated || '—'}
               </span>
               <span className="flex items-center gap-2 text-sm text-gray-600">
-                <Plane className="w-4 h-4" /> {caseData.aircraftType}
+                <Plane className="w-4 h-4" /> {caseData.aircraftType || 'Unknown aircraft'}
               </span>
             </div>
           </div>
           <div className="bg-emerald-50 rounded-xl p-4 w-full md:w-72">
             <h2 className="text-sm font-semibold text-emerald-700">Case owner</h2>
             <p className="mt-1 text-lg font-semibold text-emerald-900">{caseData.owner}</p>
-            <p className="text-sm text-emerald-700/80">{caseData.organization}</p>
+            <p className="text-sm text-emerald-700/80">{caseData.organization || '—'}</p>
             <p className="mt-3 text-sm text-emerald-700 flex items-center gap-2">
-              <Clock3 className="w-4 h-4" /> Examiner: {caseData.examiner}
+              <Clock3 className="w-4 h-4" /> Examiner: {caseData.examiner || '—'}
             </p>
           </div>
         </div>
@@ -110,27 +174,29 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-800">Case summary</h2>
-            <p className="text-gray-700 leading-relaxed">{caseData.summary}</p>
+            <p className="text-gray-700 leading-relaxed">{caseData.summary || 'No summary provided.'}</p>
           </div>
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-800">Key details</h2>
             <div className="space-y-3 text-sm text-gray-700">
               <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-emerald-600" />
-                <span>{caseData.location}</span>
+                <span>{caseData.location || 'Location not specified'}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-emerald-600" />
-                <span>Occurrence date: {caseData.date}</span>
+                <span>Occurrence date: {caseData.date || '—'}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Tags className="w-4 h-4 text-emerald-600" />
                 <span className="flex flex-wrap gap-2">
-                  {caseData.tags.map((tag) => (
-                    <span key={tag} className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
-                      {tag}
-                    </span>
-                  ))}
+                  {tags.length > 0
+                    ? tags.map((tag) => (
+                        <span key={tag} className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
+                          {tag}
+                        </span>
+                      ))
+                    : 'No tags assigned.'}
                 </span>
               </div>
             </div>
@@ -168,33 +234,43 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-gray-50 rounded-xl p-5">
             <h2 className="text-lg font-semibold text-gray-800 mb-4">Timeline</h2>
-            <ol className="space-y-4">
-              {caseData.timeline.map((item) => (
-                <li key={`${item.date}-${item.title}`} className="flex gap-3">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 mt-2" />
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">{item.title}</p>
-                    <p className="text-xs text-gray-500">{item.date}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            {timeline.length === 0 ? (
+              <p className="text-sm text-gray-500">No timeline events recorded.</p>
+            ) : (
+              <ol className="space-y-4">
+                {timeline.map((item, index) => (
+                  <li key={`${item.date}-${item.title}-${index}`} className="flex gap-3">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 mt-2" />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{item.title}</p>
+                      <p className="text-xs text-gray-500">{item.date || '—'}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
           <div className="bg-gray-50 rounded-xl p-5">
             <h2 className="text-lg font-semibold text-gray-800 mb-4">Attachments</h2>
-            <ul className="space-y-4">
-              {caseData.attachments.map((file) => (
-                <li key={file.name} className="flex items-start gap-3">
-                  <FileText className="w-5 h-5 text-emerald-600 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">{file.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {file.type} • {file.size} • Uploaded by {file.uploadedBy}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            {attachments.length === 0 ? (
+              <p className="text-sm text-gray-500">No attachments have been uploaded.</p>
+            ) : (
+              <ul className="space-y-4">
+                {attachments.map((file, index) => (
+                  <li key={`${file.name}-${index}`} className="flex items-start gap-3">
+                    <FileText className="w-5 h-5 text-emerald-600 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{file.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {file.type ? `${file.type} • ` : ''}
+                        {file.size ? `${file.size} • ` : ''}
+                        {file.uploadedBy ? `Uploaded by ${file.uploadedBy}` : 'Uploaded file'}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       </div>

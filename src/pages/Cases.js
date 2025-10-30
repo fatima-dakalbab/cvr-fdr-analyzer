@@ -1,250 +1,433 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-    Search,
-    Plus,
-    Filter,
-    Eye,
-    Pencil,
-    Trash2,
+  Search,
+  Plus,
+  Filter,
+  Eye,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
-
-// const cases = [
-//     {
-//         caseNumber: 'AAI-UAE-2025-001',
-//         caseName: 'Dubai Creek Runway Excursion',
-//         module: 'CVR & FDR',
-//         lastUpdated: '2025-06-03',
-//         status: 'Complete',
-//         owner: 'Eng. Ahmed Al Mansoori',
-//     },
-//     {
-//         caseNumber: 'AAI-UAE-2025-004',
-//         caseName: 'Sharjah Desert UAV Incident',
-//         module: 'FDR',
-//         lastUpdated: '2025-05-28',
-//         status: 'In Progress',
-//         owner: 'Dr. Hessa Al Suwaidi',
-//     },
-//     {
-//         caseNumber: 'AAI-UAE-2025-009',
-//         caseName: 'Abu Dhabi Mid-Air Near Miss',
-//         module: 'CVR',
-//         lastUpdated: '2025-05-16',
-//         status: 'Pending Review',
-//         owner: 'Capt. Khalid Al Hameli',
-//     },
-//     {
-//         caseNumber: 'AAI-UAE-2025-013',
-//         caseName: 'Al Ain Night Landing Deviation',
-//         module: 'CVR & FDR',
-//         lastUpdated: '2025-05-09',
-//         status: 'Data Required',
-//         owner: 'Salem Al Marri',
-//     },
-//     {
-//         caseNumber: 'AAI-UAE-2025-017',
-//         caseName: 'Ras Al Khaimah Rotorcraft Incident',
-//         module: 'FDR',
-//         lastUpdated: '2025-04-28',
-//         status: 'Complete',
-//         owner: 'Mariam Al Zarouni',
-//     },
-// ];
-import { cases } from '../data/cases';
+import CaseFormModal from '../components/CaseFormModal';
+import {
+  fetchCases,
+  createCase,
+  updateCase,
+  deleteCase,
+} from '../api/cases';
 
 const statusStyles = {
-    Complete: 'bg-emerald-100 text-emerald-700',
-    'In Progress': 'bg-amber-100 text-amber-700',
-    'Pending Review': 'bg-sky-100 text-sky-700',
-    'Data Required': 'bg-rose-100 text-rose-700',
+  Complete: 'bg-emerald-100 text-emerald-700',
+  'In Progress': 'bg-amber-100 text-amber-700',
+  'Pending Review': 'bg-sky-100 text-sky-700',
+  'Data Required': 'bg-rose-100 text-rose-700',
+  'Not Started': 'bg-gray-100 text-gray-600',
 };
 
-const Cases = ({ onStartNewCase, onOpenFDR, onOpenCVR, onOpenCorrelate, onOpenCaseDetails }) => {
-    const [selectedCaseNumber, setSelectedCaseNumber] = useState(null);
+const defaultAnalyses = {
+  fdr: { status: 'Not Started', lastRun: null, summary: '' },
+  cvr: { status: 'Not Started', lastRun: null, summary: '' },
+  correlate: { status: 'Not Started', lastRun: null, summary: '' },
+};
 
-    const selectedCase = useMemo(
-        () => cases.find((caseItem) => caseItem.caseNumber === selectedCaseNumber) || null,
-        [selectedCaseNumber],
-    );
+const defaultTimeline = [];
+const defaultAttachments = [];
 
-    const handleNavigate = (callback) => {
-        if (selectedCaseNumber) {
-            callback?.(selectedCaseNumber);
-        }
+const createDefaultAnalyses = () => ({
+  fdr: { ...defaultAnalyses.fdr },
+  cvr: { ...defaultAnalyses.cvr },
+  correlate: { ...defaultAnalyses.correlate },
+});
+
+const Cases = ({
+  onStartNewCase,
+  onOpenFDR,
+  onOpenCVR,
+  onOpenCorrelate,
+  onOpenCaseDetails,
+  isCreateCaseOpen = false,
+  onCloseCreateCase = () => {},
+}) => {
+  const [cases, setCases] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedCaseNumber, setSelectedCaseNumber] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState('create');
+  const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingCase, setEditingCase] = useState(null);
+  const [feedback, setFeedback] = useState('');
+
+  useEffect(() => {
+    const loadCases = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const data = await fetchCases();
+        setCases(Array.isArray(data) ? data : []);
+      } catch (err) {
+        setError(err.message || 'Unable to load cases');
+      } finally {
+        setLoading(false);
+      }
     };
 
-    return (
-        <div className="max-w-7xl mx-auto space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                    <h2 className="text-3xl font-bold text-gray-800">Cases</h2>
-                    <p className="text-gray-600">Search, manage, and monitor all recorded investigations.</p>
-                </div>
-                <div className="flex items-center gap-3">
-                    <button
-                        type="button"
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
-                    >
-                        <Filter className="w-4 h-4" />
-                        Filters
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onStartNewCase}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-semibold shadow-md"
-                        style={{ backgroundColor: '#019348' }}
-                    >
-                        <Plus className="w-4 h-4" />
-                        Add Case
-                    </button>
-                </div>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-6 space-y-6">
-                <div className="relative max-w-sm">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <input
-                        type="text"
-                        placeholder="Search cases, analysts, or help"
-                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                </div>
+    loadCases();
+  }, []);
 
-                <div className="overflow-x-auto">
-                    <table className="w-full min-w-max">
-                        <thead className="bg-gray-50 border-b">
-                            <tr>
-                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Select</th>
-                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Case Title</th>
-                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Case Number</th>
-                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Module</th>
-                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Last Updated</th>
-                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Status</th>
-                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Owner</th>
-                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-500">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {cases.map((caseItem) => {
-                                const isSelected = selectedCaseNumber === caseItem.caseNumber;
+  useEffect(() => {
+    if (isCreateCaseOpen) {
+      setFormMode('create');
+      setEditingCase(null);
+      setIsFormOpen(true);
+    }
+  }, [isCreateCaseOpen]);
 
-                                return (
-                                    <tr
-                                        key={caseItem.caseNumber}
-                                        className={`border-b transition-colors ${isSelected ? 'bg-emerald-50/60 border-emerald-200' : 'hover:bg-gray-50'}`}
-                                    >
-                                        <td className="px-4 py-4">
-                                            <label className="flex items-center justify-center">
-                                                <input
-                                                    type="radio"
-                                                    name="selectedCase"
-                                                    value={caseItem.caseNumber}
-                                                    checked={isSelected}
-                                                    onChange={() => setSelectedCaseNumber(caseItem.caseNumber)}
-                                                    className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
-                                                />
-                                            </label>
-                                        </td>
-                                        <td className="px-4 py-4 text-sm font-medium text-gray-900">{caseItem.caseName}</td>
-                                        <td className="px-4 py-4 text-sm text-emerald-600 font-semibold">{caseItem.caseNumber}</td>
-                                        <td className="px-4 py-4 text-sm text-gray-700">{caseItem.module}</td>
-                                        <td className="px-4 py-4 text-sm text-gray-600">{caseItem.lastUpdated}</td>
-                                        <td className="px-4 py-4 text-sm">
-                                            <span
-                                                className={`px-3 py-1 rounded-full text-xs font-semibold ${statusStyles[caseItem.status] || 'bg-gray-100 text-gray-600'}`}
-                                            >
-                                                {caseItem.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-4 text-sm text-gray-700">{caseItem.owner}</td>
-                                        <td className="px-4 py-4 text-sm text-right">
-                                            <div className="flex items-center justify-end gap-2 text-gray-500">
-                                                 <button
-                                                    type="button"
-                                                    onClick={() => onOpenCaseDetails?.(caseItem.caseNumber)}
-                                                    className="p-2 hover:text-emerald-600"
-                                                    title="View"
-                                                >
-                                                    <Eye className="w-4 h-4" />
-                                                </button>
-                                                <button type="button" className="p-2 hover:text-emerald-600" title="Edit">
-                                                    <Pencil className="w-4 h-4" />
-                                                </button>
-                                                <button type="button" className="p-2 hover:text-rose-600" title="Delete">
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
+  useEffect(() => {
+    if (!isFormOpen && isCreateCaseOpen) {
+      onCloseCreateCase();
+    }
+  }, [isFormOpen, isCreateCaseOpen, onCloseCreateCase]);
 
-                {selectedCase && (
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 rounded-xl border border-emerald-100 bg-emerald-50/80 p-4">
-                        <div>
-                            <p className="text-sm text-emerald-700">Selected</p>
-                            <p className="text-lg font-semibold text-emerald-900">{selectedCase.caseName}</p>
-                            <p className="text-sm text-emerald-700/80">{selectedCase.caseNumber}</p>
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={() => onOpenCaseDetails?.(selectedCase.caseNumber)}
-                                className="w-full sm:w-auto px-5 py-2 rounded-lg bg-emerald-500 text-white font-semibold hover:bg-emerald-600"
-                            >
-                                View Case Details
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleNavigate(onOpenFDR)}
-                                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
-                            >
-                                FDR Analysis
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleNavigate(onOpenCVR)}
-                                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
-                            >
-                                CVR Analysis
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleNavigate(onOpenCorrelate)}
-                                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
-                            >
-                                Correlate
-                            </button>
-                        </div>
-                    </div>
-                )}
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-sm text-gray-600">
-                    <p>
-                        Showing {cases.length} of {cases.length} cases
-                    </p>
-                    <div className="flex items-center gap-2">
-                        <button type="button" className="px-3 py-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50">
-                            Prev
-                        </button>
-                        <button type="button" className="px-3 py-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50">
-                            1
-                        </button>
-                        <button type="button" className="px-3 py-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50">
-                            2
-                        </button>
-                        <button type="button" className="px-3 py-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50">
-                            3
-                        </button>
-                        <button type="button" className="px-3 py-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50">
-                            Next
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+  const selectedCase = useMemo(
+    () => cases.find((caseItem) => caseItem.caseNumber === selectedCaseNumber) || null,
+    [cases, selectedCaseNumber],
+  );
+
+  const filteredCases = useMemo(() => {
+    if (!searchTerm) {
+      return cases;
+    }
+
+    const value = searchTerm.toLowerCase();
+    return cases.filter((item) =>
+      [
+        item.caseName,
+        item.caseNumber,
+        item.owner,
+        item.organization,
+        item.examiner,
+      ]
+        .filter(Boolean)
+        .some((field) => field.toLowerCase().includes(value)),
     );
+  }, [cases, searchTerm]);
+
+  const openCreateForm = () => {
+    setFormMode('create');
+    setEditingCase(null);
+    setIsFormOpen(true);
+    setFormError('');
+    setFeedback('');
+  };
+
+  const openEditForm = (caseItem) => {
+    setFormMode('edit');
+    setEditingCase(caseItem);
+    setIsFormOpen(true);
+    setFormError('');
+    setFeedback('');
+  };
+
+  const closeForm = () => {
+    setIsFormOpen(false);
+    setEditingCase(null);
+    setFormError('');
+    setIsSubmitting(false);
+  };
+
+  const handleCreateCase = async (formValues) => {
+    setIsSubmitting(true);
+    setFormError('');
+    try {
+      const payload = {
+        ...formValues,
+        analyses: createDefaultAnalyses(),
+        timeline: defaultTimeline,
+        attachments: defaultAttachments,
+      };
+      const created = await createCase(payload);
+      setCases((prev) => [created, ...prev.filter((item) => item.caseNumber !== created.caseNumber)]);
+      setSelectedCaseNumber(created.caseNumber);
+      setFeedback('Case created successfully.');
+      closeForm();
+    } catch (err) {
+      setFormError(err.message || 'Unable to create case');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdateCase = async (formValues) => {
+    if (!editingCase) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError('');
+    try {
+      const payload = {
+        ...editingCase,
+        ...formValues,
+      };
+      const updated = await updateCase(editingCase.caseNumber, payload);
+      if (!updated) {
+        throw new Error('Case not found');
+      }
+      setCases((prev) =>
+        prev.map((item) => (item.caseNumber === updated.caseNumber ? updated : item)),
+      );
+      setSelectedCaseNumber(updated.caseNumber);
+      setFeedback('Case updated successfully.');
+      closeForm();
+    } catch (err) {
+      setFormError(err.message || 'Unable to update case');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteCase = async (caseNumber) => {
+    if (!window.confirm('Are you sure you want to delete this case?')) {
+      return;
+    }
+
+    try {
+      await deleteCase(caseNumber);
+      setCases((prev) => prev.filter((item) => item.caseNumber !== caseNumber));
+      if (selectedCaseNumber === caseNumber) {
+        setSelectedCaseNumber(null);
+      }
+      setFeedback('Case deleted successfully.');
+    } catch (err) {
+      setFeedback(err.message || 'Unable to delete case');
+    }
+  };
+
+  const handleFormSubmit = (values) =>
+    formMode === 'edit' ? handleUpdateCase(values) : handleCreateCase(values);
+
+  const handleNavigate = (callback) => {
+    if (selectedCaseNumber) {
+      callback?.(selectedCaseNumber);
+    }
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold text-gray-800">Cases</h2>
+          <p className="text-gray-600">Search, manage, and monitor all recorded investigations.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+            disabled
+            title="Filter functionality coming soon"
+          >
+            <Filter className="w-4 h-4" />
+            Filters
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              openCreateForm();
+              onStartNewCase?.();
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-semibold shadow-md"
+            style={{ backgroundColor: '#019348' }}
+          >
+            <Plus className="w-4 h-4" />
+            Add Case
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-md p-6 space-y-6">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search cases, analysts, or help"
+            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+        </div>
+
+        {feedback && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {feedback}
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <p className="text-sm text-gray-500">Loading cases…</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-max">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Select</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Case Title</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Case Number</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Module</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Last Updated</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-gray-500">Owner</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-gray-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCases.map((caseItem) => {
+                  const isSelected = selectedCaseNumber === caseItem.caseNumber;
+
+                  return (
+                    <tr
+                      key={caseItem.caseNumber}
+                      className={`border-b transition-colors ${
+                        isSelected ? 'bg-emerald-50/60 border-emerald-200' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <td className="px-4 py-4">
+                        <label className="flex items-center justify-center">
+                          <input
+                            type="radio"
+                            name="selectedCase"
+                            value={caseItem.caseNumber}
+                            checked={isSelected}
+                            onChange={() => setSelectedCaseNumber(caseItem.caseNumber)}
+                            className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
+                          />
+                        </label>
+                      </td>
+                      <td className="px-4 py-4 text-sm font-medium text-gray-900">{caseItem.caseName}</td>
+                      <td className="px-4 py-4 text-sm text-emerald-600 font-semibold">{caseItem.caseNumber}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{caseItem.module}</td>
+                      <td className="px-4 py-4 text-sm text-gray-600">{caseItem.lastUpdated || '—'}</td>
+                      <td className="px-4 py-4 text-sm">
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                            statusStyles[caseItem.status] || 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          {caseItem.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{caseItem.owner}</td>
+                      <td className="px-4 py-4 text-sm text-right">
+                        <div className="flex items-center justify-end gap-2 text-gray-500">
+                          <button
+                            type="button"
+                            onClick={() => onOpenCaseDetails?.(caseItem.caseNumber)}
+                            className="p-2 hover:text-emerald-600"
+                            title="View"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditForm(caseItem)}
+                            className="p-2 hover:text-emerald-600"
+                            title="Edit"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCase(caseItem.caseNumber)}
+                            className="p-2 hover:text-rose-600"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredCases.length === 0 && !loading && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-6 text-center text-sm text-gray-500">
+                      No cases match your search.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {selectedCase && (
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 rounded-xl border border-emerald-100 bg-emerald-50/80 p-4">
+            <div>
+              <p className="text-sm text-emerald-700">Selected</p>
+              <p className="text-lg font-semibold text-emerald-900">{selectedCase.caseName}</p>
+              <p className="text-sm text-emerald-700/80">{selectedCase.caseNumber}</p>
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <button
+                type="button"
+                onClick={() => onOpenCaseDetails?.(selectedCase.caseNumber)}
+                className="w-full sm:w-auto px-5 py-2 rounded-lg bg-emerald-500 text-white font-semibold hover:bg-emerald-600"
+              >
+                View Case Details
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavigate(onOpenFDR)}
+                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
+              >
+                FDR Analysis
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavigate(onOpenCVR)}
+                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
+              >
+                CVR Analysis
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavigate(onOpenCorrelate)}
+                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
+              >
+                Correlate
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-sm text-gray-600">
+          <p>
+            Showing {filteredCases.length} of {cases.length} cases
+          </p>
+          <div className="flex items-center gap-2 text-gray-400">
+            <span>Pagination coming soon</span>
+          </div>
+        </div>
+      </div>
+
+      <CaseFormModal
+        isOpen={isFormOpen}
+        mode={formMode}
+        initialValues={editingCase}
+        onClose={closeForm}
+        onSubmit={handleFormSubmit}
+        isSubmitting={isSubmitting}
+        errorMessage={formError}
+      />
+    </div>
+  );
 };
 
 export default Cases;

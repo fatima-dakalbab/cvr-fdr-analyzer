@@ -14,7 +14,6 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
-import NewCase from './pages/NewCasePage';
 import Cases from './pages/Cases';
 import FDR from './pages/FDR';
 import CVR from './pages/CVR';
@@ -29,6 +28,7 @@ const CVRFDRApp = () => {
   const [currentView, setCurrentView] = useState('login');
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [activeCaseNumber, setActiveCaseNumber] = useState(null);
+  const [isCreateCaseOpen, setIsCreateCaseOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -112,6 +112,7 @@ const CVRFDRApp = () => {
     setShowUserMenu(false);
     setCurrentPage('dashboard');
     setActiveCaseNumber(null);
+    setIsCreateCaseOpen(false);
   };
 
   const openCaseDetails = (caseNumber) => {
@@ -147,6 +148,12 @@ const CVRFDRApp = () => {
     setActiveCaseNumber(null);
     setShowNotifications(false);
     setShowUserMenu(false);
+    setIsCreateCaseOpen(false);
+  };
+
+  const handleStartNewCase = () => {
+    setCurrentPage('cases');
+    setIsCreateCaseOpen(true);
   };
 
 
@@ -155,22 +162,22 @@ const CVRFDRApp = () => {
       case 'dashboard':
         return (
           <Dashboard
-            onStartNewCase={() => setCurrentPage('newcase')}
+            onStartNewCase={handleStartNewCase}
             onOpenCases={() => setCurrentPage('cases')}
             onOpenCaseDetails={openCaseDetails}
             currentUser={currentUser}
           />
         );
-      case 'newcase':
-        return <NewCase onComplete={() => setCurrentPage('cases')} />;
       case 'cases':
         return (
           <Cases
-            onStartNewCase={() => setCurrentPage('newcase')}
+            onStartNewCase={handleStartNewCase}
             onOpenFDR={openFDR}
             onOpenCVR={openCVR}
             onOpenCorrelate={openCorrelate}
             onOpenCaseDetails={openCaseDetails}
+            isCreateCaseOpen={isCreateCaseOpen}
+            onCloseCreateCase={() => setIsCreateCaseOpen(false)}
           />
         );
       case 'case-details':
