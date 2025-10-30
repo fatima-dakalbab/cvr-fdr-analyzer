@@ -42,8 +42,10 @@ The script verifies that Node.js and npm are available before running `npm insta
 
    ```bash
    createdb cvr_fdr_analyzer
-   psql cvr_fdr_analyzer -f server/db/schema.sql
    ```
+
+   The API automatically applies `server/db/schema.sql` on startup, so you only need to create the empty
+   database once.
 
 2. **Configure the API** – Copy `.env.example` and update the connection string if needed:
 
