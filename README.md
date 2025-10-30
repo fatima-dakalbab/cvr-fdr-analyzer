@@ -139,6 +139,7 @@ example, `.pdf`) to match the format you need.
 - **Port already in use**: The CRA dev server defaults to port 3000. Set `PORT=3001` (or another free port) before running `npm start` to use a different port.
 - **Dependency issues**: Delete the `node_modules/` directory and rerun `./install-requirements.sh`.
 - **Unsupported Node.js version**: Upgrade to the latest Active LTS release of Node.js.
+- **"Unexpected server error" responses**: Run `npm run server` in a terminal to keep the API logs visible. The backend now prints the stack trace for unhandled errors and, when `NODE_ENV` is not set to `production`, also returns the specific error message in the JSON response (`details` field) so you can see the root cause directly in the browser network tab.
 
 ## License
 

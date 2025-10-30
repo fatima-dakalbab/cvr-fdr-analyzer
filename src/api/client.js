@@ -18,7 +18,8 @@ const request = async (path, options = {}) => {
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const error = new Error(payload?.error || 'Request failed');
+    const message = payload?.details || payload?.error || 'Request failed';
+    const error = new Error(message);
     error.status = response.status;
     throw error;
   }
