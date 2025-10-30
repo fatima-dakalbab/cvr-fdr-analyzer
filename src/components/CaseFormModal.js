@@ -22,6 +22,26 @@ const statuses = [
   'Data Required',
 ];
 
+const formatFileSize = (bytes) => {
+  if (!bytes || Number.isNaN(Number(bytes))) {
+    return '';
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = bytes;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+};
+
+const FDR_EXTENSIONS = ['.csv', '.xls', '.xlsx'];
+const CVR_EXTENSIONS = ['.wav', '.mp3'];
+
 const formatDateInput = (value) => {
   if (!value) {
     return '';
@@ -161,6 +181,9 @@ const CaseFormModal = ({
   if (!isOpen) {
     return null;
   }
+
+  const fdrUpload = formValues.uploads?.fdr || {};
+  const cvrUpload = formValues.uploads?.cvr || {};
 
   const handleChange = (event) => {
     const { name, value } = event.target;
