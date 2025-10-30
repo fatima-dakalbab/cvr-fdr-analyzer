@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS cases (
     analyses JSONB NOT NULL DEFAULT '{}',
     timeline JSONB NOT NULL DEFAULT '[]',
     attachments JSONB NOT NULL DEFAULT '[]',
+    investigator JSONB NOT NULL DEFAULT '{}',
+    aircraft JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

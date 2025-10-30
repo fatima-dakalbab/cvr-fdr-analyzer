@@ -10,17 +10,28 @@ import {
   PlaneTakeoff,
   Workflow,
   Clock3,
+  Phone,
+  Mail,
 } from 'lucide-react';
 import { fetchCaseByNumber } from '../api/cases';
 
 const statusColors = {
   Complete: 'text-emerald-700 bg-emerald-100',
+  Completed: 'text-emerald-700 bg-emerald-100',
   'In Progress': 'text-amber-700 bg-amber-100',
   'Pending Review': 'text-sky-700 bg-sky-100',
   'Data Required': 'text-rose-700 bg-rose-100',
+  'Data Incomplete': 'text-rose-700 bg-rose-100',
   'Not Applicable': 'text-gray-600 bg-gray-100',
   Blocked: 'text-rose-700 bg-rose-100',
   'Not Started': 'text-gray-700 bg-gray-100',
+  'Analysis Not Started': 'text-gray-700 bg-gray-100',
+  'Ready for Analysis': 'text-sky-700 bg-sky-100',
+  'Data Not Uploaded': 'text-gray-600 bg-gray-100',
+  Paused: 'text-amber-700 bg-amber-100',
+  'FDR Analyzed': 'text-emerald-700 bg-emerald-100',
+  'CVR Analyzed': 'text-emerald-700 bg-emerald-100',
+  'Correlation Analyzed': 'text-emerald-700 bg-emerald-100',
 };
 
 const analysisIcon = {
@@ -132,6 +143,8 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
   const tags = Array.isArray(caseData.tags) ? caseData.tags : [];
   const timeline = Array.isArray(caseData.timeline) ? caseData.timeline : [];
   const attachments = Array.isArray(caseData.attachments) ? caseData.attachments : [];
+  const investigatorInfo = caseData.investigator || {};
+  const aircraftInfo = caseData.aircraft || {};
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -168,6 +181,25 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
             <p className="mt-3 text-sm text-emerald-700 flex items-center gap-2">
               <Clock3 className="w-4 h-4" /> Examiner: {caseData.examiner || '—'}
             </p>
+            {(investigatorInfo.email || investigatorInfo.phone) && (
+              <div className="mt-3 space-y-2 text-sm text-emerald-700">
+                {investigatorInfo.email && (
+                  <p className="flex items-center gap-2">
+                    <Mail className="w-4 h-4" /> {investigatorInfo.email}
+                  </p>
+                )}
+                {investigatorInfo.phone && (
+                  <p className="flex items-center gap-2">
+                    <Phone className="w-4 h-4" /> {investigatorInfo.phone}
+                  </p>
+                )}
+              </div>
+            )}
+            {investigatorInfo.notes && (
+              <p className="mt-3 text-xs text-emerald-700/80 bg-white/60 border border-emerald-100 rounded-lg px-3 py-2">
+                {investigatorInfo.notes}
+              </p>
+            )}
           </div>
         </div>
 
@@ -176,20 +208,36 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
             <h2 className="text-lg font-semibold text-gray-800">Case summary</h2>
             <p className="text-gray-700 leading-relaxed">{caseData.summary || 'No summary provided.'}</p>
           </div>
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-gray-800">Key details</h2>
-            <div className="space-y-3 text-sm text-gray-700">
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-emerald-600" />
-                <span>{caseData.location || 'Location not specified'}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-emerald-600" />
-                <span>Occurrence date: {caseData.date || '—'}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Tags className="w-4 h-4 text-emerald-600" />
-                <span className="flex flex-wrap gap-2">
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-gray-800">Key details</h2>
+              <div className="space-y-3 text-sm text-gray-700">
+                <div className="flex items-center gap-2">
+                  <Workflow className="w-4 h-4 text-emerald-600" />
+                  <span>Focus: {caseData.module || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-emerald-600" />
+                  <span>{caseData.location || 'Location not specified'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-emerald-600" />
+                  <span>Occurrence date: {caseData.date || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Plane className="w-4 h-4 text-emerald-600" />
+                  <span>Tail number: {aircraftInfo.aircraftNumber || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Plane className="w-4 h-4 text-emerald-600" />
+                  <span>Operator: {aircraftInfo.operator || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Plane className="w-4 h-4 text-emerald-600" />
+                  <span>Flight number: {aircraftInfo.flightNumber || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Tags className="w-4 h-4 text-emerald-600" />
+                  <span className="flex flex-wrap gap-2">
                   {tags.length > 0
                     ? tags.map((tag) => (
                         <span key={tag} className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
@@ -256,19 +304,29 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
               <p className="text-sm text-gray-500">No attachments have been uploaded.</p>
             ) : (
               <ul className="space-y-4">
-                {attachments.map((file, index) => (
-                  <li key={`${file.name}-${index}`} className="flex items-start gap-3">
-                    <FileText className="w-5 h-5 text-emerald-600 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-semibold text-gray-800">{file.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {file.type ? `${file.type} • ` : ''}
-                        {file.size ? `${file.size} • ` : ''}
-                        {file.uploadedBy ? `Uploaded by ${file.uploadedBy}` : 'Uploaded file'}
-                      </p>
-                    </div>
-                  </li>
-                ))}
+                {attachments.map((file, index) => {
+                  const details = [
+                    file.type,
+                    file.size,
+                    file.status ? `Status: ${file.status}` : null,
+                    file.uploadedBy ? `Uploaded by ${file.uploadedBy}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' • ');
+
+                  return (
+                    <li key={`${file.name}-${index}`} className="flex items-start gap-3">
+                      <FileText className="w-5 h-5 text-emerald-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800">{file.name}</p>
+                        <p className="text-xs text-gray-500">{details || 'No additional metadata'}</p>
+                        {file.notes && (
+                          <p className="text-xs text-gray-500 mt-1">{file.notes}</p>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

@@ -37,11 +37,14 @@ const createCase = async (payload) => {
       tags,
       analyses,
       timeline,
-      attachments
+      attachments,
+      investigator,
+      aircraft
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-      $11, $12, $13, $14, $15, $16
+      $11, $12, $13, $14, $15, $16,
+      $17, $18
     )
     RETURNING *
   `;
@@ -63,6 +66,8 @@ const createCase = async (payload) => {
     data.analyses,
     data.timeline,
     data.attachments,
+    data.investigator,
+    data.aircraft,
   ];
 
   const { rows } = await pool.query(query, values);
@@ -89,8 +94,10 @@ const updateCase = async (caseNumber, payload) => {
       tags = $12,
       analyses = $13,
       timeline = $14,
-      attachments = $15
-    WHERE case_number = $16
+      attachments = $15,
+      investigator = $16,
+      aircraft = $17
+    WHERE case_number = $18
     RETURNING *
   `;
 
@@ -110,6 +117,8 @@ const updateCase = async (caseNumber, payload) => {
     data.analyses,
     data.timeline,
     data.attachments,
+    data.investigator,
+    data.aircraft,
     caseNumber,
   ];
 

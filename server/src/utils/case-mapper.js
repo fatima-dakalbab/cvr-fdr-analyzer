@@ -35,6 +35,8 @@ const mapToDbCase = (payload) => {
     analyses,
     timeline = [],
     attachments = [],
+    investigator = {},
+    aircraft = {},
   } = payload;
 
   return {
@@ -54,6 +56,8 @@ const mapToDbCase = (payload) => {
     analyses: analyses && typeof analyses === 'object' ? analyses : DEFAULT_ANALYSES,
     timeline: Array.isArray(timeline) ? timeline : [],
     attachments: Array.isArray(attachments) ? attachments : [],
+    investigator: investigator && typeof investigator === 'object' ? investigator : {},
+    aircraft: aircraft && typeof aircraft === 'object' ? aircraft : {},
   };
 };
 
@@ -74,6 +78,8 @@ const mapFromDbCase = (row) => ({
   analyses: row.analyses || DEFAULT_ANALYSES,
   timeline: row.timeline || [],
   attachments: row.attachments || [],
+  investigator: row.investigator || {},
+  aircraft: row.aircraft || {},
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });

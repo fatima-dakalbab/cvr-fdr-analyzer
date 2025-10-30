@@ -8,6 +8,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import CaseFormModal from '../components/CaseFormModal';
+import NewCaseWizard from '../components/NewCaseWizard';
 import {
   fetchCases,
   createCase,
@@ -17,26 +18,21 @@ import {
 
 const statusStyles = {
   Complete: 'bg-emerald-100 text-emerald-700',
+  Completed: 'bg-emerald-100 text-emerald-700',
   'In Progress': 'bg-amber-100 text-amber-700',
   'Pending Review': 'bg-sky-100 text-sky-700',
   'Data Required': 'bg-rose-100 text-rose-700',
   'Not Started': 'bg-gray-100 text-gray-600',
+  'Analysis Not Started': 'bg-gray-100 text-gray-700',
+  'Data Incomplete': 'bg-rose-100 text-rose-700',
+  'Ready for Analysis': 'bg-sky-100 text-sky-700',
+  'Data Not Uploaded': 'bg-gray-100 text-gray-600',
+  Blocked: 'bg-rose-100 text-rose-700',
+  Paused: 'bg-amber-100 text-amber-700',
+  'FDR Analyzed': 'bg-emerald-100 text-emerald-700',
+  'CVR Analyzed': 'bg-emerald-100 text-emerald-700',
+  'Correlation Analyzed': 'bg-emerald-100 text-emerald-700',
 };
-
-const defaultAnalyses = {
-  fdr: { status: 'Not Started', lastRun: null, summary: '' },
-  cvr: { status: 'Not Started', lastRun: null, summary: '' },
-  correlate: { status: 'Not Started', lastRun: null, summary: '' },
-};
-
-const defaultTimeline = [];
-const defaultAttachments = [];
-
-const createDefaultAnalyses = () => ({
-  fdr: { ...defaultAnalyses.fdr },
-  cvr: { ...defaultAnalyses.cvr },
-  correlate: { ...defaultAnalyses.correlate },
-});
 
 const Cases = ({
   onStartNewCase,
@@ -53,11 +49,13 @@ const Cases = ({
   const [selectedCaseNumber, setSelectedCaseNumber] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [formMode, setFormMode] = useState('create');
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingCase, setEditingCase] = useState(null);
   const [feedback, setFeedback] = useState('');
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
     const loadCases = async () => {
@@ -78,17 +76,17 @@ const Cases = ({
 
   useEffect(() => {
     if (isCreateCaseOpen) {
-      setFormMode('create');
-      setEditingCase(null);
-      setIsFormOpen(true);
+      setIsWizardOpen(true);
+      setCreateError('');
+      setIsCreating(false);
     }
   }, [isCreateCaseOpen]);
 
   useEffect(() => {
-    if (!isFormOpen && isCreateCaseOpen) {
+    if (!isWizardOpen && isCreateCaseOpen) {
       onCloseCreateCase();
     }
-  }, [isFormOpen, isCreateCaseOpen, onCloseCreateCase]);
+  }, [isWizardOpen, isCreateCaseOpen, onCloseCreateCase]);
 
   const selectedCase = useMemo(
     () => cases.find((caseItem) => caseItem.caseNumber === selectedCaseNumber) || null,
@@ -114,16 +112,14 @@ const Cases = ({
     );
   }, [cases, searchTerm]);
 
-  const openCreateForm = () => {
-    setFormMode('create');
-    setEditingCase(null);
-    setIsFormOpen(true);
-    setFormError('');
+  const openCreateWizard = () => {
+    setIsWizardOpen(true);
+    setCreateError('');
     setFeedback('');
+    setIsCreating(false);
   };
 
   const openEditForm = (caseItem) => {
-    setFormMode('edit');
     setEditingCase(caseItem);
     setIsFormOpen(true);
     setFormError('');
@@ -138,24 +134,26 @@ const Cases = ({
   };
 
   const handleCreateCase = async (formValues) => {
-    setIsSubmitting(true);
-    setFormError('');
+    setIsCreating(true);
+    setCreateError('');
     try {
       const payload = {
         ...formValues,
-        analyses: createDefaultAnalyses(),
-        timeline: defaultTimeline,
-        attachments: defaultAttachments,
+        timeline: Array.isArray(formValues.timeline) ? formValues.timeline : [],
+        attachments: Array.isArray(formValues.attachments) ? formValues.attachments : [],
       };
       const created = await createCase(payload);
       setCases((prev) => [created, ...prev.filter((item) => item.caseNumber !== created.caseNumber)]);
       setSelectedCaseNumber(created.caseNumber);
       setFeedback('Case created successfully.');
-      closeForm();
+      setIsWizardOpen(false);
+      setCreateError('');
     } catch (err) {
-      setFormError(err.message || 'Unable to create case');
+      const message = err.message || 'Unable to create case';
+      setCreateError(message);
+      throw err;
     } finally {
-      setIsSubmitting(false);
+      setIsCreating(false);
     }
   };
 
@@ -205,9 +203,6 @@ const Cases = ({
     }
   };
 
-  const handleFormSubmit = (values) =>
-    formMode === 'edit' ? handleUpdateCase(values) : handleCreateCase(values);
-
   const handleNavigate = (callback) => {
     if (selectedCaseNumber) {
       callback?.(selectedCaseNumber);
@@ -234,7 +229,7 @@ const Cases = ({
           <button
             type="button"
             onClick={() => {
-              openCreateForm();
+              openCreateWizard();
               onStartNewCase?.();
             }}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-semibold shadow-md"
@@ -419,12 +414,23 @@ const Cases = ({
 
       <CaseFormModal
         isOpen={isFormOpen}
-        mode={formMode}
+        mode="edit"
         initialValues={editingCase}
         onClose={closeForm}
-        onSubmit={handleFormSubmit}
+        onSubmit={handleUpdateCase}
         isSubmitting={isSubmitting}
         errorMessage={formError}
+      />
+      <NewCaseWizard
+        isOpen={isWizardOpen}
+        onClose={() => {
+          setIsWizardOpen(false);
+          setCreateError('');
+          setIsCreating(false);
+        }}
+        onSubmit={handleCreateCase}
+        isSubmitting={isCreating}
+        errorMessage={createError}
       />
     </div>
   );

@@ -4,7 +4,7 @@ const defaultValues = {
   caseNumber: '',
   caseName: '',
   module: 'CVR & FDR',
-  status: 'Not Started',
+  status: 'Data Incomplete',
   owner: '',
   organization: '',
   examiner: '',
@@ -16,8 +16,21 @@ const defaultValues = {
   tags: '',
 };
 
-const modules = ['CVR', 'FDR', 'CVR & FDR'];
-const statuses = ['Not Started', 'In Progress', 'Pending Review', 'Complete', 'Data Required'];
+const modules = ['CVR', 'FDR', 'CVR & FDR', 'Correlation'];
+const statuses = [
+  'Data Incomplete',
+  'Not Started',
+  'Analysis Not Started',
+  'In Progress',
+  'FDR Analyzed',
+  'CVR Analyzed',
+  'Correlation Analyzed',
+  'Pending Review',
+  'Paused',
+  'Complete',
+  'Completed',
+  'Data Required',
+];
 
 const formatDateInput = (value) => {
   if (!value) {
