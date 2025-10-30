@@ -75,8 +75,21 @@ npm test
 │   └── index.js           # React entry point
 ├── install-requirements.sh# Dependency installation helper script
 ├── package.json           # npm metadata and dependency list
+├── docs/                  # Markdown documentation (e.g., architecture diagrams)
 └── README.md              # Project documentation (this file)
 ```
+
+## Viewing the documentation
+
+Architecture notes and diagrams live in the `docs/` folder as Markdown files. You can view them directly in GitHub or any IDE
+with Markdown preview support. For Mermaid diagrams, export a shareable image or PDF with the Mermaid CLI:
+
+```bash
+npx -y @mermaid-js/mermaid-cli -i docs/cvr-fdr-workflow-diagram.md -o docs/cvr-fdr-workflow.png
+```
+
+The command above writes a rendered diagram to `docs/cvr-fdr-workflow.png`. Feel free to change the output file extension (for
+example, `.pdf`) to match the format you need.
 
 ## Available scripts
 
