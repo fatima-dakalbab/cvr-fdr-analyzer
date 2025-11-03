@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Search,
   Plus,
@@ -34,15 +35,7 @@ const statusStyles = {
   'Correlation Analyzed': 'bg-emerald-100 text-emerald-700',
 };
 
-const Cases = ({
-  onStartNewCase,
-  onOpenFDR,
-  onOpenCVR,
-  onOpenCorrelate,
-  onOpenCaseDetails,
-  isCreateCaseOpen = false,
-  onCloseCreateCase = () => {},
-}) => {
+const Cases = () => {
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -56,6 +49,8 @@ const Cases = ({
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [createError, setCreateError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     const loadCases = async () => {
@@ -75,18 +70,13 @@ const Cases = ({
   }, []);
 
   useEffect(() => {
-    if (isCreateCaseOpen) {
+    if (location.state?.openNewCase) {
       setIsWizardOpen(true);
       setCreateError('');
       setIsCreating(false);
+      navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [isCreateCaseOpen]);
-
-  useEffect(() => {
-    if (!isWizardOpen && isCreateCaseOpen) {
-      onCloseCreateCase();
-    }
-  }, [isWizardOpen, isCreateCaseOpen, onCloseCreateCase]);
+  }, [location, navigate]);
 
   const selectedCase = useMemo(
     () => cases.find((caseItem) => caseItem.caseNumber === selectedCaseNumber) || null,
@@ -203,10 +193,12 @@ const Cases = ({
     }
   };
 
-  const handleNavigate = (callback) => {
-    if (selectedCaseNumber) {
-      callback?.(selectedCaseNumber);
+  const handleNavigate = (path) => {
+    if (!selectedCaseNumber) {
+      return;
     }
+
+    navigate(path);
   };
 
   return (
@@ -230,7 +222,6 @@ const Cases = ({
             type="button"
             onClick={() => {
               openCreateWizard();
-              onStartNewCase?.();
             }}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-semibold shadow-md"
             style={{ backgroundColor: '#019348' }}
@@ -323,7 +314,7 @@ const Cases = ({
                         <div className="flex items-center justify-end gap-2 text-gray-500">
                           <button
                             type="button"
-                            onClick={() => onOpenCaseDetails?.(caseItem.caseNumber)}
+                            onClick={() => navigate(`/cases/${caseItem.caseNumber}`)}
                             className="p-2 hover:text-emerald-600"
                             title="View"
                           >
@@ -372,28 +363,28 @@ const Cases = ({
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <button
                 type="button"
-                onClick={() => onOpenCaseDetails?.(selectedCase.caseNumber)}
+                onClick={() => navigate(`/cases/${selectedCase.caseNumber}`)}
                 className="w-full sm:w-auto px-5 py-2 rounded-lg bg-emerald-500 text-white font-semibold hover:bg-emerald-600"
               >
                 View Case Details
               </button>
               <button
                 type="button"
-                onClick={() => handleNavigate(onOpenFDR)}
+                onClick={() => handleNavigate(`/cases/${selectedCase.caseNumber}/fdr`)}
                 className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
               >
                 FDR Analysis
               </button>
               <button
                 type="button"
-                onClick={() => handleNavigate(onOpenCVR)}
+                onClick={() => handleNavigate(`/cases/${selectedCase.caseNumber}/cvr`)}
                 className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
               >
                 CVR Analysis
               </button>
               <button
                 type="button"
-                onClick={() => handleNavigate(onOpenCorrelate)}
+                onClick={() => handleNavigate(`/cases/${selectedCase.caseNumber}/correlate`)}
                 className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
               >
                 Correlate

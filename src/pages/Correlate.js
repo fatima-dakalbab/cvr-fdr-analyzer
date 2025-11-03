@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { PlaneTakeoff, AlertTriangle, Workflow, Download, ArrowRight, Loader2, ChevronRight } from "lucide-react";
 import { fetchCaseByNumber } from "../api/cases";
 import useRecentCases from "../hooks/useRecentCases";
@@ -285,7 +286,10 @@ const emotionBadge = (emotion, color) => (
     <span className={`px-3 py-1 text-sm font-medium rounded-full ${color}`}>{emotion}</span>
 );
 
-const Correlate = ({ caseNumber }) => {
+const Correlate = ({ caseNumber: propCaseNumber }) => {
+    const { caseNumber: routeCaseNumber } = useParams();
+    const caseNumber = propCaseNumber || routeCaseNumber;
+    const navigate = useNavigate();
     const [workflowStage, setWorkflowStage] = useState(
         caseNumber ? "loading" : "caseSelection"
     );
@@ -491,7 +495,7 @@ const Correlate = ({ caseNumber }) => {
     const flightLabel = selectedCase?.flight || "Flight details pending";
 
     const handleNavigateToCases = () => {
-        window.dispatchEvent(new Event("navigateToCases"));
+        navigate("/cases");
     };
 
     const handleCaseSelect = (option) => {

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import {
     ResponsiveContainer,
@@ -318,7 +319,10 @@ const detectionResultSummary = {
     ],
 };
 
-export default function FDR({ caseNumber }) {
+export default function FDR({ caseNumber: propCaseNumber }) {
+    const { caseNumber: routeCaseNumber } = useParams();
+    const caseNumber = propCaseNumber || routeCaseNumber;
+    const navigate = useNavigate();
     const [selectedParameters, setSelectedParameters] = useState([
         "Altitude",
         "Airspeed",
@@ -390,7 +394,7 @@ export default function FDR({ caseNumber }) {
     }, [caseNumber, selectedCase]);
 
     const handleNavigateToCases = () => {
-        window.dispatchEvent(new Event("navigateToCases"));
+        navigate("/cases");
     };
 
 

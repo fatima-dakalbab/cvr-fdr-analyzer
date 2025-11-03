@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
     Area,
     AreaChart,
@@ -357,7 +358,10 @@ const TabButton = ({ isActive, onClick, children }) => (
     </button>
 );
 
-export default function CVR({ caseNumber }) {
+export default function CVR({ caseNumber: propCaseNumber }) {
+    const { caseNumber: routeCaseNumber } = useParams();
+    const caseNumber = propCaseNumber || routeCaseNumber;
+    const navigate = useNavigate();
     const [selectedCase, setSelectedCase] = useState(null);
     const [workflowStage, setWorkflowStage] = useState(
         caseNumber ? "analysis" : "caseSelection"
@@ -532,7 +536,7 @@ export default function CVR({ caseNumber }) {
     };
 
     const handleNavigateToCases = () => {
-        window.dispatchEvent(new Event("navigateToCases"));
+        navigate("/cases");
     };
 
     if (workflowStage === "caseSelection") {
