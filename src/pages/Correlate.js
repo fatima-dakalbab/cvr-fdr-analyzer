@@ -14,7 +14,7 @@ import {
     YAxis,
 } from "recharts";
 
-const CASES = [
+const FALLBACK_CASES = [
     {
         id: "AAI-UAE-2025-001",
         title: "Runway excursion during initial climb",
@@ -198,47 +198,17 @@ const CASES = [
     {
         id: "AAI-UAE-2024-022",
         title: "Emergency descent after cabin pressure loss",
-        aircraft: "Boeing 737-8 MAX",
-        flight: "GT312 - Sharjah to Cairo",
-        date: "19 Sep 2024",
-        location: "En-route over the Arabian Gulf",
+        aircraft: "Boeing 737 MAX 8",
+        flight: "WY312 - Muscat to Riyadh",
+        date: "12 Dec 2024",
+        location: "Over Arabian Gulf",
         summary:
-            "Rapid cabin depressurization during climb triggered oxygen mask deployment and an immediate return to departure airport.",
+            "Cabin pressure anomaly triggered an emergency descent and diversion to Muscat. No injuries reported.",
         timeline: [
             {
-                time: "06:12:08",
-                speaker: "First Officer",
-                role: "Pilot Monitoring",
-                transcript: "Climb checklist complete.",
-                emotion: "Calm",
-                emotionColor: "bg-emerald-100 text-emerald-700",
-                fdrEvent: "Cabin Rate",
-                fdrValue: "500 ft/min",
-            },
-            {
-                time: "06:14:20",
-                speaker: "ATC",
-                role: "Departure",
-                transcript: "Climb and maintain flight level 360.",
-                emotion: "Neutral",
-                emotionColor: "bg-slate-100 text-slate-700",
-                fdrEvent: "Altitude",
-                fdrValue: "18,000 ft",
-            },
-            {
-                time: "06:15:42",
-                speaker: "Captain",
-                role: "Pilot Flying",
-                transcript: "Setting climb power, keep an eye on cabin altitude.",
-                emotion: "Focused",
-                emotionColor: "bg-blue-100 text-blue-700",
-                fdrEvent: "Cabin Altitude",
-                fdrValue: "6,500 ft",
-            },
-            {
-                time: "06:16:18",
-                speaker: "Warning System",
-                role: "Aircraft",
+                time: "06:12:47",
+                speaker: "Cabin",
+                role: "System",
                 transcript: "Cabin altitude warning.",
                 emotion: "Alert",
                 emotionColor: "bg-amber-100 text-amber-700",
@@ -340,16 +310,29 @@ const Correlate = ({ caseNumber }) => {
     const lastLinkedCaseRef = useRef(null);
 
     useEffect(() => {
-        if (workflowStage !== "loading") {
-            return undefined;
+        return () => {
+            if (loadingTimerRef.current) {
+                clearTimeout(loadingTimerRef.current);
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!caseNumber) {
+            lastLinkedCaseRef.current = null;
+            setLinkError("");
+            setSelectedCaseId(null);
+            setSelectedCase(null);
+            setWorkflowStage("caseSelection");
+            return;
         }
 
-        const timeoutId = setTimeout(() => {
-            setWorkflowStage("analysis");
-        }, 1600);
+        if (lastLinkedCaseRef.current === caseNumber) {
+            return;
+        }
 
-        return () => clearTimeout(timeoutId);
-    }, [workflowStage]);
+        setWorkflowStage("loading");
+        setLinkError("");
 
     useEffect(() => {
         if (!caseNumber) {
@@ -549,10 +532,12 @@ const Correlate = ({ caseNumber }) => {
             <div className="max-w-6xl mx-auto space-y-8">
                 <header className="space-y-2">
                     <p className="text-sm font-semibold text-emerald-600">Correlation Workspace</p>
-                    <h1 className="text-3xl font-bold text-gray-900">Select a Case to Synchronize FDR &amp; CVR</h1>
+                    <h1 className="text-3xl font-bold text-gray-900">
+                        Select a Case to Synchronize FDR &amp; CVR
+                    </h1>
                     <p className="text-gray-600 max-w-3xl">
-                        Choose the investigation file you want to align first. Once a case is selected, the system will load the cockpit
-                        transcript, flight recorder data, and correlation insights for synchronized analysis.
+                        Choose the investigation file you want to align first. Once a case is selected, the system will load the
+                        cockpit transcript, flight recorder data, and correlation insights for synchronized analysis.
                     </p>
                 </header>
 
@@ -570,6 +555,8 @@ const Correlate = ({ caseNumber }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {caseSelectionOptions.map((item) => {
                         const isActive = item.id === selectedCaseId;
+                        const requiresData = item.hasFdrData === false || item.hasCvrData === false;
+
                         return (
                             <button
                                 key={item.id}
@@ -612,6 +599,7 @@ const Correlate = ({ caseNumber }) => {
                             </button>
                         );
                     })}
+
                     <button
                         type="button"
                         onClick={handleNavigateToCases}
@@ -681,7 +669,8 @@ const Correlate = ({ caseNumber }) => {
                     <h1 className="text-3xl font-bold text-gray-900">Preparing synchronized analysis</h1>
                     <p className="text-gray-600 max-w-2xl mx-auto">
                         We&apos;re aligning cockpit voice recordings with flight recorder parameters for
-                        <span className="font-semibold"> {selectedCase.id}</span>. Sit tight while we fetch correlation highlights.
+                        <span className="font-semibold"> {selectedCase?.id || "the selected case"}</span>. Sit tight while we
+                        fetch correlation highlights.
                     </p>
                 </div>
 
@@ -708,6 +697,20 @@ const Correlate = ({ caseNumber }) => {
         );
     }
 
+    if (!selectedCase) {
+        return (
+            <div className="max-w-4xl mx-auto flex flex-col items-center justify-center gap-4 py-24 text-center">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+                <div className="space-y-1">
+                    <p className="text-sm font-semibold text-emerald-600">Preparing correlation workspace</p>
+                    <p className="text-sm text-gray-600">
+                        Loading the selected case details. Analysis will begin shortly.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
             <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
@@ -716,42 +719,34 @@ const Correlate = ({ caseNumber }) => {
                         <p className="text-sm font-semibold uppercase tracking-wide text-emerald-600">
                             Correlation Workspace
                         </p>
-                        <h1 className="text-2xl font-semibold text-gray-900">
-                            FDR & CVR Synchronization
-                        </h1>
-                        <p className="text-gray-600 mt-1 max-w-2xl">
-                            Select an incident case to align cockpit conversations with flight data records,
-                            visualize critical parameters and highlight notable correlation points.
+                        <h1 className="text-2xl font-semibold text-gray-900">FDR &amp; CVR Synchronization</h1>
+                        <p className="mt-2 text-sm text-gray-600 max-w-2xl">
+                            Review synchronized cockpit voice and flight recorder data to understand how timeline events align across
+                            both sources.
                         </p>
                     </div>
-                    <div className="w-full md:w-80 space-y-2">
-                        <div className="flex items-center justify-between">
-                            <p className="block text-sm font-medium text-gray-700">Case reference</p>
-                            <button
-                                type="button"
-                                onClick={() => setWorkflowStage("caseSelection")}
-                                className="text-xs font-semibold text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1 transition hover:border-emerald-200 hover:text-emerald-600"
-                            >
-                                Change case
-                            </button>
+                    <div className="flex gap-3">
+                        <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                            <Workflow className="h-4 w-4" /> Analysis ready
                         </div>
-                        <div className="border border-gray-200 rounded-lg px-3 py-2 bg-gray-50">
-                            <p className="text-sm font-semibold text-gray-900">{selectedCase.id}</p>
-                            <p className="text-xs text-gray-500 mt-1">{selectedCase.title}</p>
+                        <div className="flex items-center gap-2 rounded-lg bg-white border border-gray-200 px-3 py-2 text-sm">
+                            <PlaneTakeoff className="h-4 w-4 text-emerald-600" /> {selectedCase.flight || "Flight details pending"}
                         </div>
                     </div>
                 </div>
 
-                <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="col-span-2 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                        <div className="flex items-center gap-3">
-                            <PlaneTakeoff className="w-10 h-10 text-emerald-600" />
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Highlighted Emotion</p>
+                        <div className="mt-2 flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-emerald-600 shadow-sm">
+                                {highlightedEmotion.speaker?.charAt(0) || "C"}
+                            </div>
                             <div>
-                                <p className="text-sm font-semibold text-emerald-700 uppercase">Flight Event</p>
-                                <h2 className="text-lg font-semibold text-emerald-900">{selectedCase.title}</h2>
+                                <p className="text-sm font-semibold text-gray-900">{highlightedEmotion.speaker}</p>
+                                <p className="text-sm text-gray-600">{highlightedEmotion.emotion}</p>
                             </div>
                         </div>
-                        <p className="text-sm text-emerald-800 mt-3">{selectedCase.summary}</p>
                     </div>
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
                         <p className="text-xs uppercase text-gray-500 font-semibold">Aircraft</p>
@@ -827,30 +822,34 @@ const Correlate = ({ caseNumber }) => {
                         </table>
                     </div>
                 </div>
+            </div>
 
-                <div className="space-y-6">
-                    <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
-                        <div className="flex items-center gap-3">
-                            <AlertTriangle className="w-10 h-10 text-amber-500" />
+            <div className="grid gap-6 lg:grid-cols-[1.2fr,0.8fr]">
+                <div className="space-y-4">
+                    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                        <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-xs uppercase font-semibold text-amber-600">Highlighted Moment</p>
-                                <h3 className="text-lg font-semibold text-gray-900">{primaryEvent.transcript}</h3>
+                                <p className="text-xs uppercase tracking-wide text-gray-500">Primary Synchronized Event</p>
+                                <h2 className="text-xl font-semibold text-gray-900">{primaryEvent.transcript}</h2>
+                                <p className="mt-1 text-sm text-gray-600">
+                                    Occurred at <span className="font-semibold">{primaryEvent.time}</span> from {primaryEvent.speaker || "Unknown"}
+                                </p>
                             </div>
+                            {emotionBadge(primaryEvent.emotion, primaryEvent.emotionColor || "bg-slate-100 text-slate-600")}
                         </div>
-                        <div className="mt-4 space-y-3 text-sm text-gray-700">
-                            <div className="flex items-center justify-between">
-                                <span className="font-medium text-gray-600">Timestamp</span>
-                                <span className="font-mono text-gray-900">{primaryEvent.time}</span>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                <p className="text-xs text-gray-500 uppercase">FDR Event</p>
+                                <p className="text-sm font-semibold text-gray-900">{primaryEvent.fdrEvent}</p>
                             </div>
-                            <div className="flex items-center justify-between">
-                                <span className="font-medium text-gray-600">Emotion Response</span>
-                                {emotionBadge(primaryEvent.emotion, primaryEvent.emotionColor)}
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                <p className="text-xs text-gray-500 uppercase">Recorded Value</p>
+                                <p className="text-sm font-semibold text-gray-900">{primaryEvent.fdrValue}</p>
                             </div>
-                            <div className="border-t border-dashed border-gray-200 pt-3 text-sm text-gray-600">
-                                <p className="font-semibold text-gray-900">FDR Insight</p>
-                                <p className="mt-1 text-gray-700">
-                                    {primaryEvent.fdrEvent} recorded <span className="font-semibold">{primaryEvent.fdrValue}</span>
-                                    , triggering crew response.
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                <p className="text-xs text-gray-500 uppercase">Timeline Window</p>
+                                <p className="text-sm font-semibold text-gray-900">
+                                    {timelineStart} – {timelineEnd}
                                 </p>
                             </div>
                         </div>
@@ -868,12 +867,9 @@ const Correlate = ({ caseNumber }) => {
                                         <span className="font-semibold text-gray-900">{entry.speaker}</span>
                                         <span className="font-mono text-gray-500">{entry.time}</span>
                                     </div>
-                                    <p className="mt-2 text-gray-700">“{entry.transcript}”</p>
-                                    <div className="mt-2">{emotionBadge(entry.emotion, entry.emotionColor)}</div>
+                                    <p className="mt-3 text-xs font-medium text-gray-500">Timestamp: {entry.time}</p>
                                 </div>
                             ))}
-                        </div>
-                    </div>
 
                     <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
                         <h3 className="text-lg font-semibold text-gray-900">Flight Parameters</h3>
@@ -883,20 +879,81 @@ const Correlate = ({ caseNumber }) => {
                                     <p className="uppercase text-xs font-semibold text-gray-500">{label}</p>
                                     <p className="text-gray-900 font-medium mt-1">{value}</p>
                                 </div>
-                            ))}
+                            )}
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    <div>
-                        <h2 className="text-xl font-semibold text-gray-900">Parameter Trends</h2>
-                        <p className="text-sm text-gray-600">
-                            Overlay of altitude, heading, and speed values to highlight deviations during the
-                            correlated timeframe.
+                <div className="space-y-4">
+                    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                        <h2 className="text-lg font-semibold text-gray-900">Flight Recorder Trends</h2>
+                        <p className="mt-1 text-sm text-gray-600">
+                            Key parameters extracted from the selected timeline window.
                         </p>
+                        <div className="mt-4 h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={parameters} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
+                                    <defs>
+                                        <linearGradient id="altitudeGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor={parameterColors.altitude} stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor={parameterColors.altitude} stopOpacity={0} />
+                                        </linearGradient>
+                                        <linearGradient id="headingGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor={parameterColors.heading} stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor={parameterColors.heading} stopOpacity={0} />
+                                        </linearGradient>
+                                        <linearGradient id="speedGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor={parameterColors.speed} stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor={parameterColors.speed} stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                    <XAxis dataKey="time" tick={{ fill: "#6b7280", fontSize: 12 }} />
+                                    <YAxis tick={{ fill: "#6b7280", fontSize: 12 }} />
+                                    <Tooltip
+                                        contentStyle={{ borderRadius: "0.75rem", borderColor: "#d1d5db" }}
+                                        labelStyle={{ color: "#111827", fontWeight: 600 }}
+                                    />
+                                    <Legend verticalAlign="top" height={36} />
+                                    <Area
+                                        type="monotone"
+                                        dataKey="altitude"
+                                        name="Altitude (ft)"
+                                        stroke={parameterColors.altitude}
+                                        fill="url(#altitudeGradient)"
+                                        strokeWidth={2}
+                                    />
+                                    <Area
+                                        type="monotone"
+                                        dataKey="heading"
+                                        name="Heading (°)"
+                                        stroke={parameterColors.heading}
+                                        fill="url(#headingGradient)"
+                                        strokeWidth={2}
+                                    />
+                                    <Area
+                                        type="monotone"
+                                        dataKey="speed"
+                                        name="Speed (kts)"
+                                        stroke={parameterColors.speed}
+                                        fill="url(#speedGradient)"
+                                        strokeWidth={2}
+                                    />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                        <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <p className="text-sm text-gray-600">
+                                Data window aligned from <span className="font-semibold">{timelineStart}</span> to
+                                <span className="font-semibold"> {timelineEnd}</span>.
+                            </p>
+                            <button
+                                type="button"
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-medium shadow-sm hover:bg-emerald-700"
+                            >
+                                <Download className="w-4 h-4" /> Export Report
+                            </button>
+                        </div>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-600">
                         {Object.entries(parameterColors).map(([parameter, color]) => (
