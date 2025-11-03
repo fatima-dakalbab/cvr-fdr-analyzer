@@ -123,23 +123,17 @@ const CVRFDRApp = () => {
   };
 
   const openFDR = (caseNumber) => {
-    if (caseNumber) {
-      setActiveCaseNumber(caseNumber);
-    }
+    setActiveCaseNumber(caseNumber || null);
     setCurrentPage('fdr');
   };
 
   const openCVR = (caseNumber) => {
-    if (caseNumber) {
-      setActiveCaseNumber(caseNumber);
-    }
+    setActiveCaseNumber(caseNumber || null);
     setCurrentPage('cvr');
   };
 
   const openCorrelate = (caseNumber) => {
-    if (caseNumber) {
-      setActiveCaseNumber(caseNumber);
-    }
+    setActiveCaseNumber(caseNumber || null);
     setCurrentPage('correlate');
   };
 

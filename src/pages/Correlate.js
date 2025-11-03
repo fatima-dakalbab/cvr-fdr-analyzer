@@ -437,7 +437,81 @@ const Correlate = ({ caseNumber }) => {
         };
     };
 
-    const primaryEvent = selectedCase?.timeline?.[3] || selectedCase?.timeline?.[0];
+        const source = option.source && typeof option.source === "object" ? option.source : {};
+        const templateCandidate =
+            (Array.isArray(source.timeline) && source.timeline.length > 0 ? source : null) ||
+            fallbackTemplate ||
+            option.template ||
+            CASES[0];
+
+        const timeline = Array.isArray(source.timeline) && source.timeline.length > 0
+            ? source.timeline
+            : Array.isArray(templateCandidate?.timeline)
+            ? templateCandidate.timeline
+            : [];
+
+        const parameters = Array.isArray(source.parameters) && source.parameters.length > 0
+            ? source.parameters
+            : templateCandidate?.parameters || [];
+
+        const highlightedEmotion = source.highlightedEmotion ||
+            templateCandidate?.highlightedEmotion || {
+                speaker: "Correlation Engine",
+                emotion: "Awaiting synchronized events.",
+            };
+
+        const keyParameters =
+            source.keyParameters && typeof source.keyParameters === "object"
+                ? source.keyParameters
+                : templateCandidate?.keyParameters || {};
+
+        const availability = getRecorderAvailability(source);
+        const hasFdrData = option.hasFdrData ?? availability.hasFdrData ?? true;
+        const hasCvrData = option.hasCvrData ?? availability.hasCvrData ?? true;
+
+        return {
+            ...(templateCandidate || {}),
+            timeline,
+            parameters,
+            keyParameters,
+            highlightedEmotion,
+            id: option.id,
+            title: option.title,
+            summary: option.summary,
+            aircraft: option.aircraft,
+            date: option.date,
+            location: option.location ?? templateCandidate?.location ?? "",
+            hasFdrData,
+            hasCvrData,
+            canCorrelate: option.canCorrelate ?? (hasFdrData && hasCvrData),
+        };
+    };
+
+    const timeline = Array.isArray(selectedCase?.timeline) ? selectedCase.timeline : [];
+    const parameters = Array.isArray(selectedCase?.parameters) ? selectedCase.parameters : [];
+    const keyParameters =
+        selectedCase?.keyParameters && typeof selectedCase.keyParameters === "object"
+            ? selectedCase.keyParameters
+            : {};
+    const highlightedEmotion = selectedCase?.highlightedEmotion || {
+        speaker: "Correlation Engine",
+        emotion: "Awaiting synchronized insights.",
+    };
+    const primaryEvent =
+        timeline[3] ||
+        timeline[0] || {
+            time: "00:00:00",
+            transcript: "No synchronized events available yet.",
+            fdrEvent: "Correlation pending",
+            fdrValue: "Awaiting data",
+            emotion: "Neutral",
+            emotionColor: "bg-slate-100 text-slate-600",
+            speaker: "Correlation Engine",
+            role: "",
+        };
+    const timelineStart = timeline[0]?.time || "Start TBD";
+    const timelineEnd = timeline[timeline.length - 1]?.time || "End TBD";
+    const flightLabel = selectedCase?.flight || "Flight details pending";
 
     const handleNavigateToCases = () => {
         window.dispatchEvent(new Event("navigateToCases"));
@@ -451,6 +525,26 @@ const Correlate = ({ caseNumber }) => {
 
 
     if (workflowStage === "caseSelection") {
+        const selectedOption = caseSelectionOptions.find(
+            (item) => item.id === selectedCaseId
+        );
+        const missingSources = [];
+        if (selectedOption) {
+            if (selectedOption.hasFdrData === false) {
+                missingSources.push("FDR");
+            }
+            if (selectedOption.hasCvrData === false) {
+                missingSources.push("CVR");
+            }
+        }
+        const canStart = Boolean(selectedCaseId && missingSources.length === 0);
+        const missingLabel =
+            missingSources.length === 2
+                ? "FDR and CVR data uploads"
+                : missingSources.length === 1
+                ? `${missingSources[0]} data upload`
+                : "";
+
         return (
             <div className="max-w-6xl mx-auto space-y-8">
                 <header className="space-y-2">
@@ -502,6 +596,18 @@ const Correlate = ({ caseNumber }) => {
                                         <span className="text-gray-500">Location</span>
                                         <span className="font-medium text-gray-800">{item.location}</span>
                                     </div>
+                                    {(item.hasFdrData === false || item.hasCvrData === false) && (
+                                        <div className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                                            <AlertTriangle className="h-3 w-3" />
+                                            {[
+                                                item.hasFdrData === false ? "FDR" : null,
+                                                item.hasCvrData === false ? "CVR" : null,
+                                            ]
+                                                .filter(Boolean)
+                                                .join(" & ")}{" "}
+                                            data required
+                                        </div>
+                                    )}
                                 </div>
                             </button>
                         );
@@ -529,19 +635,25 @@ const Correlate = ({ caseNumber }) => {
                     </button>
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <p className="text-sm text-gray-500">
                         Select a case to unlock synchronized analysis of recorder sources.
                     </p>
                     <button
                         type="button"
-                        disabled={!selectedCaseId}
-                        onClick={() => selectedCaseId && setWorkflowStage("loading")}
+                        disabled={!canStart}
+                        onClick={() => canStart && setWorkflowStage("loading")}
                         className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-emerald-200 disabled:text-emerald-50 bg-emerald-600 hover:bg-emerald-700"
                     >
                         Start synchronization
                         <ArrowRight className="w-4 h-4" />
                     </button>
+                    {!canStart && selectedCaseId && (
+                        <p className="text-xs font-medium text-amber-600 md:ml-4 md:text-right">
+                            Correlation requires {missingLabel}. Please upload the missing data before
+                            continuing.
+                        </p>
+                    )}
                 </div>
             </div>
         );
@@ -645,7 +757,7 @@ const Correlate = ({ caseNumber }) => {
                         <p className="text-xs uppercase text-gray-500 font-semibold">Aircraft</p>
                         <p className="text-sm font-medium text-gray-900 mt-1">{selectedCase.aircraft}</p>
                         <p className="text-xs text-gray-500 mt-4 uppercase font-semibold">Flight</p>
-                        <p className="text-sm text-gray-900 mt-1">{selectedCase.flight}</p>
+                        <p className="text-sm text-gray-900 mt-1">{flightLabel}</p>
                     </div>
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
                         <p className="text-xs uppercase text-gray-500 font-semibold">Date</p>
@@ -694,7 +806,7 @@ const Correlate = ({ caseNumber }) => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 bg-white text-sm">
-                                {selectedCase.timeline.map((entry, index) => (
+                                {timeline.map((entry, index) => (
                                     <tr key={`${entry.time}-${index}`} className="hover:bg-emerald-50/60 transition-colors">
                                         <td className="px-4 py-3 font-mono text-gray-700">{entry.time}</td>
                                         <td className="px-4 py-3">
@@ -747,10 +859,10 @@ const Correlate = ({ caseNumber }) => {
                     <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
                         <h3 className="text-lg font-semibold text-gray-900">Transcript &amp; Emotion</h3>
                         <p className="text-sm text-gray-600 mt-1">
-                            {selectedCase.highlightedEmotion.speaker}: {selectedCase.highlightedEmotion.emotion}
+                            {highlightedEmotion.speaker}: {highlightedEmotion.emotion}
                         </p>
                         <div className="mt-4 space-y-3 text-sm text-gray-700">
-                            {selectedCase.timeline.slice(0, 3).map((entry, index) => (
+                            {timeline.slice(0, 3).map((entry, index) => (
                                 <div key={`${entry.time}-insight`} className="p-3 border border-gray-200 rounded-lg">
                                     <div className="flex items-center justify-between">
                                         <span className="font-semibold text-gray-900">{entry.speaker}</span>
@@ -766,7 +878,7 @@ const Correlate = ({ caseNumber }) => {
                     <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
                         <h3 className="text-lg font-semibold text-gray-900">Flight Parameters</h3>
                         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                            {Object.entries(selectedCase.keyParameters).map(([label, value]) => (
+                            {Object.entries(keyParameters).map(([label, value]) => (
                                 <div key={label} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
                                     <p className="uppercase text-xs font-semibold text-gray-500">{label}</p>
                                     <p className="text-gray-900 font-medium mt-1">{value}</p>
@@ -801,7 +913,7 @@ const Correlate = ({ caseNumber }) => {
 
                 <div className="mt-6 h-72">
                     <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={selectedCase.parameters} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                        <AreaChart data={parameters} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                             <defs>
                                 <linearGradient id="altitudeGradient" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="5%" stopColor={parameterColors.altitude} stopOpacity={0.3} />
@@ -854,8 +966,8 @@ const Correlate = ({ caseNumber }) => {
 
                 <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <p className="text-sm text-gray-600">
-                        Data window aligned from <span className="font-semibold">{selectedCase.timeline[0].time}</span> to
-                        <span className="font-semibold"> {selectedCase.timeline[selectedCase.timeline.length - 1].time}</span>.
+                        Data window aligned from <span className="font-semibold">{timelineStart}</span> to
+                        <span className="font-semibold"> {timelineEnd}</span>.
                     </p>
                     <button
                         type="button"
