@@ -1,5 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PlaneTakeoff, AlertTriangle, Workflow, Download, ArrowRight, Loader2, ChevronRight } from "lucide-react";
+import { fetchCaseByNumber } from "../api/cases";
+import useRecentCases from "../hooks/useRecentCases";
+import { buildCasePreview } from "../utils/caseDisplay";
 import {
     Area,
     AreaChart,
@@ -284,6 +287,17 @@ const CASES = [
     },
 ];
 
+const defaultCasePreviews = CASES.map((item) => ({
+    id: item.id,
+    title: item.title,
+    date: item.date,
+    summary: item.summary,
+    aircraft: item.aircraft,
+    location: item.location,
+    source: item,
+    template: item,
+}));
+
 const parameterColors = {
     altitude: "#22c55e",
     heading: "#0ea5e9",
@@ -294,9 +308,36 @@ const emotionBadge = (emotion, color) => (
     <span className={`px-3 py-1 text-sm font-medium rounded-full ${color}`}>{emotion}</span>
 );
 
-const Correlate = () => {
-    const [workflowStage, setWorkflowStage] = useState("caseSelection");
+const Correlate = ({ caseNumber }) => {
+    const [workflowStage, setWorkflowStage] = useState(
+        caseNumber ? "loading" : "caseSelection"
+    );
     const [selectedCaseId, setSelectedCaseId] = useState(null);
+    const [selectedCase, setSelectedCase] = useState(null);
+    const { recentCases, loading: isRecentLoading, error: recentCasesError } =
+        useRecentCases(3);
+    const caseSelectionOptions = useMemo(() => {
+        const mapped = recentCases
+            .map((item, index) => {
+                const preview = buildCasePreview(item);
+                if (!preview) {
+                    return null;
+                }
+
+                const template = CASES[index % CASES.length];
+
+                return {
+                    ...preview,
+                    location: preview.location || template?.location || '',
+                    template,
+                };
+            })
+            .filter(Boolean);
+
+        return mapped.length > 0 ? mapped : defaultCasePreviews;
+    }, [recentCases]);
+    const [linkError, setLinkError] = useState("");
+    const lastLinkedCaseRef = useRef(null);
 
     useEffect(() => {
         if (workflowStage !== "loading") {
@@ -310,15 +351,102 @@ const Correlate = () => {
         return () => clearTimeout(timeoutId);
     }, [workflowStage]);
 
-    const selectedCase = useMemo(
-        () => (selectedCaseId ? CASES.find((item) => item.id === selectedCaseId) ?? null : null),
-        [selectedCaseId]
-    );
+    useEffect(() => {
+        if (!caseNumber) {
+            lastLinkedCaseRef.current = null;
+            return;
+        }
+
+        if (lastLinkedCaseRef.current === caseNumber) {
+            return;
+        }
+
+        if (selectedCase?.id === caseNumber) {
+            lastLinkedCaseRef.current = caseNumber;
+            if (workflowStage === "caseSelection") {
+                setWorkflowStage("loading");
+            }
+            return;
+        }
+
+        let isMounted = true;
+        setLinkError("");
+
+        fetchCaseByNumber(caseNumber)
+            .then((data) => {
+                if (!isMounted) {
+                    return;
+                }
+
+                const preview = buildCasePreview(data);
+                if (!preview) {
+                    throw new Error("Unable to open the selected case");
+                }
+
+                const template =
+                    (preview.source && preview.source.timeline
+                        ? preview.source
+                        : caseSelectionOptions.find((option) => option.id === preview.id)?.template) ||
+                    CASES[0];
+
+                const merged = {
+                    ...(template || {}),
+                    id: preview.id,
+                    title: preview.title,
+                    summary: preview.summary,
+                    aircraft: preview.aircraft,
+                    date: preview.date,
+                };
+
+                setSelectedCaseId(preview.id);
+                setSelectedCase(merged);
+                setWorkflowStage("loading");
+                lastLinkedCaseRef.current = caseNumber;
+            })
+            .catch((err) => {
+                if (!isMounted) {
+                    return;
+                }
+
+                setLinkError(err?.message || "Unable to open the selected case");
+                setSelectedCase(null);
+                setSelectedCaseId(null);
+                setWorkflowStage("caseSelection");
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [caseNumber, selectedCase, workflowStage, caseSelectionOptions]);
+
+    const mergeWithTemplate = (option) => {
+        if (!option) {
+            return null;
+        }
+
+        const template = option.source?.timeline ? option.source : option.template || CASES[0];
+
+        return {
+            ...(template || {}),
+            id: option.id,
+            title: option.title,
+            summary: option.summary,
+            aircraft: option.aircraft,
+            date: option.date,
+            location: option.location ?? template?.location ?? "",
+        };
+    };
 
     const primaryEvent = selectedCase?.timeline?.[3] || selectedCase?.timeline?.[0];
 
     const handleNavigateToCases = () => {
         window.dispatchEvent(new Event("navigateToCases"));
+    };
+
+    const handleCaseSelect = (option) => {
+        setSelectedCaseId(option.id);
+        setSelectedCase(mergeWithTemplate(option));
+        setLinkError("");
     };
 
 
@@ -334,14 +462,25 @@ const Correlate = () => {
                     </p>
                 </header>
 
+                {(recentCasesError || linkError) && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        {linkError || recentCasesError}
+                    </div>
+                )}
+                {isRecentLoading && recentCases.length === 0 && (
+                    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+                        Loading recent cases...
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {CASES.map((item) => {
+                    {caseSelectionOptions.map((item) => {
                         const isActive = item.id === selectedCaseId;
                         return (
                             <button
                                 key={item.id}
                                 type="button"
-                                onClick={() => setSelectedCaseId(item.id)}
+                                onClick={() => handleCaseSelect(item)}
                                 className={`text-left rounded-2xl border transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100 ${isActive ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"
                                     }`}
                             >
@@ -408,8 +547,18 @@ const Correlate = () => {
         );
     }
 
-    if (!selectedCase) {
-        return null;
+    if (workflowStage !== "caseSelection" && !selectedCase) {
+        return (
+            <div className="max-w-4xl mx-auto flex flex-col items-center justify-center gap-4 py-24 text-center">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+                <div className="space-y-1">
+                    <p className="text-sm font-semibold text-emerald-600">Preparing correlation workspace</p>
+                    <p className="text-sm text-gray-600">
+                        Loading the selected case details. Analysis will begin shortly.
+                    </p>
+                </div>
+            </div>
+        );
     }
 
     if (workflowStage === "loading") {

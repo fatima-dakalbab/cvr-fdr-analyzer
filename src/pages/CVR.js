@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     Area,
     AreaChart,
@@ -20,8 +20,11 @@ import {
     Mic2,
     Sparkles,
 } from "lucide-react";
+import { fetchCaseByNumber } from "../api/cases";
+import useRecentCases from "../hooks/useRecentCases";
+import { buildCasePreview } from "../utils/caseDisplay";
 
-const caseOptions = [
+const defaultCaseOptions = [
     {
         id: "AAI-UAE-2025-009",
         title: "Abu Dhabi Mid-Air Near Miss",
@@ -354,15 +357,76 @@ const TabButton = ({ isActive, onClick, children }) => (
     </button>
 );
 
-export default function CVR() {
+export default function CVR({ caseNumber }) {
     const [selectedCase, setSelectedCase] = useState(null);
-    const [workflowStage, setWorkflowStage] = useState("caseSelection");
+    const [workflowStage, setWorkflowStage] = useState(
+        caseNumber ? "analysis" : "caseSelection"
+    );
     const [progressIndex, setProgressIndex] = useState(0);
     const [showResults, setShowResults] = useState(false);
     const [activeTab, setActiveTab] = useState("analysis");
     const [transcriptPlaybackTime, setTranscriptPlaybackTime] = useState(0);
     const [activeTranscriptIndex, setActiveTranscriptIndex] = useState(-1);
     const transcriptAudioRef = useRef(null);
+    const { recentCases, loading: isRecentLoading, error: recentCasesError } =
+        useRecentCases(3);
+    const caseSelectionOptions = useMemo(() => {
+        const mapped = recentCases
+            .map((item) => buildCasePreview(item))
+            .filter(Boolean);
+        return mapped.length > 0 ? mapped : defaultCaseOptions;
+    }, [recentCases]);
+    const [linkError, setLinkError] = useState("");
+    const lastLinkedCaseRef = useRef(null);
+
+    useEffect(() => {
+        if (!caseNumber) {
+            lastLinkedCaseRef.current = null;
+            return;
+        }
+
+        if (lastLinkedCaseRef.current === caseNumber) {
+            return;
+        }
+
+        if (selectedCase?.id === caseNumber) {
+            lastLinkedCaseRef.current = caseNumber;
+            if (workflowStage === "caseSelection") {
+                setWorkflowStage("analysis");
+            }
+            return;
+        }
+
+        let isMounted = true;
+        setLinkError("");
+
+        fetchCaseByNumber(caseNumber)
+            .then((data) => {
+                if (!isMounted) {
+                    return;
+                }
+
+                const preview = buildCasePreview(data);
+                setSelectedCase(preview);
+                setActiveTab("analysis");
+                setShowResults(false);
+                setProgressIndex(0);
+                setWorkflowStage("analysis");
+                lastLinkedCaseRef.current = caseNumber;
+            })
+            .catch((err) => {
+                if (!isMounted) {
+                    return;
+                }
+
+                setLinkError(err?.message || "Unable to open the selected case");
+                setWorkflowStage("caseSelection");
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [caseNumber, selectedCase, workflowStage]);
 
     useEffect(() => {
         if (workflowStage === "caseSelection") {
@@ -372,7 +436,7 @@ export default function CVR() {
     }, [workflowStage]);
 
     useEffect(() => {
-        if (workflowStage !== "analysis") {
+        if (workflowStage !== "analysis" || !selectedCase) {
             return;
         }
 
@@ -402,7 +466,7 @@ export default function CVR() {
                 clearTimeout(completionTimeout);
             }
         };
-    }, [workflowStage]);
+    }, [workflowStage, selectedCase]);
 
     useEffect(() => {
         if (workflowStage === "complete" && progressIndex !== analysisStages.length) {
@@ -447,6 +511,7 @@ export default function CVR() {
         setWorkflowStage("caseSelection");
         setActiveTab("analysis");
         setShowResults(false);
+        setLinkError("");
     };
 
     const handleStartAnalysis = () => {
@@ -482,8 +547,19 @@ export default function CVR() {
                     </p>
                 </header>
 
+                {(recentCasesError || linkError) && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        {linkError || recentCasesError}
+                    </div>
+                )}
+                {isRecentLoading && recentCases.length === 0 && (
+                    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+                        Loading recent cases...
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {caseOptions.map((caseItem) => {
+                    {caseSelectionOptions.map((caseItem) => {
                         const isActive = selectedCase?.id === caseItem.id;
                         return (
                             <button
@@ -583,6 +659,20 @@ export default function CVR() {
         revealedSnippets.length > 0
             ? revealedSnippets.map((snippet) => `${snippet.speaker}: ${snippet.text}`).join("\n")
             : "";
+
+    if (workflowStage === "analysis" && !selectedCase) {
+        return (
+            <div className="max-w-4xl mx-auto flex flex-col items-center justify-center gap-4 py-24 text-center">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+                <div className="space-y-1">
+                    <p className="text-sm font-semibold text-emerald-600">Preparing cockpit voice analysis</p>
+                    <p className="text-sm text-gray-600">
+                        Loading the selected case details. This will start automatically.
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="max-w-7xl mx-auto space-y-8">
