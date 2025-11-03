@@ -86,14 +86,14 @@ const createDefaultValues = () => ({
   },
   uploads: {
     fdr: {
-      willUploadLater: true,
-      fileName: '',
+      file: null,
       notes: '',
+      existingAttachment: null,
     },
     cvr: {
-      willUploadLater: true,
-      fileName: '',
+      file: null,
       notes: '',
+      existingAttachment: null,
     },
   },
   attachments: [],
@@ -128,11 +128,10 @@ const CaseFormModal = ({
           return { ...defaults.uploads[type.toLowerCase()] };
         }
 
-        const isPending = existing.status === 'Pending';
         return {
-          willUploadLater: isPending,
-          fileName: isPending ? '' : existing.name || '',
+          file: null,
           notes: existing.notes || '',
+          existingAttachment: existing,
         };
       };
 
@@ -214,26 +213,21 @@ const CaseFormModal = ({
     }));
   };
 
-  const handleUploadToggle = (type) => (event) => {
-    const { checked } = event.target;
+  const handleFileChange = (type) => (event) => {
+    const file = event.target.files?.[0] || null;
     setFormValues((prev) => ({
       ...prev,
       uploads: {
         ...prev.uploads,
         [type]: {
           ...prev.uploads[type],
-          willUploadLater: checked,
-          ...(checked
-            ? {
-                fileName: '',
-              }
-            : {}),
+          file,
         },
       },
     }));
   };
 
-  const handleUploadFieldChange = (type, field) => (event) => {
+  const handleUploadNotesChange = (type) => (event) => {
     const { value } = event.target;
     setFormValues((prev) => ({
       ...prev,
@@ -241,7 +235,7 @@ const CaseFormModal = ({
         ...prev.uploads,
         [type]: {
           ...prev.uploads[type],
-          [field]: value,
+          notes: value,
         },
       },
     }));
@@ -255,57 +249,57 @@ const CaseFormModal = ({
     const otherAttachments = existingAttachments.filter(
       (item) => item && item.type && !['FDR', 'CVR'].includes(item.type),
     );
-    const existingFdr = existingAttachments.find((item) => item?.type === 'FDR');
-    const existingCvr = existingAttachments.find((item) => item?.type === 'CVR');
 
     const attachments = [...otherAttachments];
+    const ownerValue = investigatorName || formValues.owner;
 
-    const hasFdrData = !uploads.fdr?.willUploadLater && Boolean(uploads.fdr?.fileName);
-    const hasCvrData = !uploads.cvr?.willUploadLater && Boolean(uploads.cvr?.fileName);
+    const processUpload = (key, label) => {
+      const upload = uploads[key] || {};
+      const existing =
+        upload.existingAttachment ||
+        existingAttachments.find((item) => item?.type === label);
+      const file = upload.file;
+      const notes = upload.notes ?? existing?.notes ?? '';
+      const uploadedBy = existing?.uploadedBy || ownerValue;
 
-    if (hasFdrData) {
-      attachments.push({
-        type: 'FDR',
-        name: uploads.fdr.fileName,
-        size: existingFdr?.size || '',
-        uploadedBy: existingFdr?.uploadedBy || investigatorName || formValues.owner,
-        notes: uploads.fdr.notes || existingFdr?.notes || '',
-        ...(existingFdr?.status && existingFdr.status !== 'Pending'
-          ? { status: existingFdr.status }
-          : {}),
-      });
-    } else if (uploads.fdr?.notes || uploads.fdr?.willUploadLater || existingFdr) {
-      attachments.push({
-        type: 'FDR',
-        name: 'FDR data pending upload',
-        size: existingFdr?.size || '',
-        uploadedBy: existingFdr?.uploadedBy || investigatorName || formValues.owner,
-        notes: uploads.fdr?.notes || existingFdr?.notes || '',
-        status: 'Pending',
-      });
-    }
+      if (file) {
+        attachments.push({
+          type: label,
+          name: file.name,
+          size: formatFileSize(file.size),
+          uploadedBy,
+          notes,
+        });
+        return true;
+      }
 
-    if (hasCvrData) {
-      attachments.push({
-        type: 'CVR',
-        name: uploads.cvr.fileName,
-        size: existingCvr?.size || '',
-        uploadedBy: existingCvr?.uploadedBy || investigatorName || formValues.owner,
-        notes: uploads.cvr.notes || existingCvr?.notes || '',
-        ...(existingCvr?.status && existingCvr.status !== 'Pending'
-          ? { status: existingCvr.status }
-          : {}),
-      });
-    } else if (uploads.cvr?.notes || uploads.cvr?.willUploadLater || existingCvr) {
-      attachments.push({
-        type: 'CVR',
-        name: 'CVR data pending upload',
-        size: existingCvr?.size || '',
-        uploadedBy: existingCvr?.uploadedBy || investigatorName || formValues.owner,
-        notes: uploads.cvr?.notes || existingCvr?.notes || '',
-        status: 'Pending',
-      });
-    }
+      if (existing) {
+        attachments.push({
+          ...existing,
+          notes,
+        });
+
+        const status = typeof existing.status === 'string' ? existing.status.toLowerCase() : '';
+        const name = typeof existing.name === 'string' ? existing.name.toLowerCase() : '';
+        return status !== 'pending' && !name.includes('pending upload');
+      }
+
+      if (notes) {
+        attachments.push({
+          type: label,
+          name: `${label} data pending upload`,
+          size: '',
+          uploadedBy,
+          notes,
+          status: 'Pending',
+        });
+      }
+
+      return false;
+    };
+
+    const hasFdrData = processUpload('fdr', 'FDR');
+    const hasCvrData = processUpload('cvr', 'CVR');
 
     return { attachments, hasFdrData, hasCvrData };
   };
@@ -393,19 +387,32 @@ const CaseFormModal = ({
       return;
     }
 
-    if (!formValues.uploads.fdr.willUploadLater && !formValues.uploads.fdr.fileName) {
-      setLocalError('Please provide a file name for the uploaded FDR data or mark it to upload later.');
-      return;
-    }
-
-    if (!formValues.uploads.cvr.willUploadLater && !formValues.uploads.cvr.fileName) {
-      setLocalError('Please provide a file name for the uploaded CVR data or mark it to upload later.');
-      return;
-    }
-
     try {
       const { attachments, hasFdrData, hasCvrData } = buildAttachments(investigatorName);
       const analyses = updateAnalyses(hasFdrData, hasCvrData);
+
+      const sanitizedUploads = {
+        fdr: {
+          notes: formValues.uploads?.fdr?.notes || '',
+          existingAttachment: formValues.uploads?.fdr?.existingAttachment || null,
+          ...(formValues.uploads?.fdr?.file
+            ? {
+                selectedFileName: formValues.uploads.fdr.file.name,
+                selectedFileSize: formValues.uploads.fdr.file.size,
+              }
+            : {}),
+        },
+        cvr: {
+          notes: formValues.uploads?.cvr?.notes || '',
+          existingAttachment: formValues.uploads?.cvr?.existingAttachment || null,
+          ...(formValues.uploads?.cvr?.file
+            ? {
+                selectedFileName: formValues.uploads.cvr.file.name,
+                selectedFileSize: formValues.uploads.cvr.file.size,
+              }
+            : {}),
+        },
+      };
 
       const tags = Array.isArray(formValues.tags)
         ? formValues.tags
@@ -429,6 +436,7 @@ const CaseFormModal = ({
 
       await onSubmit({
         ...formValues,
+        uploads: sanitizedUploads,
         owner: ownerValue,
         examiner: formValues.examiner || investigatorName,
         aircraftType: aircraft.aircraftType,
@@ -497,36 +505,6 @@ const CaseFormModal = ({
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   required
                 />
-              </label>
-              <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
-                Module
-                <select
-                  name="module"
-                  value={formValues.module}
-                  onChange={handleChange}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  {modules.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
-                Status
-                <select
-                  name="status"
-                  value={formValues.status}
-                  onChange={handleChange}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  {statuses.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
               </label>
               <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
                 Owner
@@ -732,44 +710,46 @@ const CaseFormModal = ({
           <div>
             <h3 className="text-lg font-semibold text-gray-800">Data Uploads</h3>
             <p className="text-sm text-gray-500 mb-4">
-              Track the availability of FDR and CVR datasets and capture any pending follow-up notes.
+              Upload the latest FDR and CVR datasets and add any supporting notes.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="border border-gray-200 rounded-xl p-4">
-                <div className="flex items-start justify-between gap-4">
+                <div className="space-y-4">
                   <div>
                     <p className="text-sm font-semibold text-gray-800">FDR Data</p>
                     <p className="text-xs text-gray-500 mt-1">
-                      Provide the uploaded file name or leave marked for a later upload.
+                      Upload the recorded flight data file for this case.
                     </p>
                   </div>
-                  <label className="flex items-center gap-2 text-xs text-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={formValues.uploads.fdr.willUploadLater}
-                      onChange={handleUploadToggle('fdr')}
-                    />
-                    Upload later
-                  </label>
-                </div>
-                <div className="mt-4 space-y-3">
-                  <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
-                    File name
-                    <input
-                      type="text"
-                      value={formValues.uploads.fdr.fileName}
-                      onChange={handleUploadFieldChange('fdr', 'fileName')}
-                      disabled={formValues.uploads.fdr.willUploadLater}
-                      placeholder="e.g. flight-fdr-data.dat"
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-gray-100"
-                    />
-                  </label>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
+                      Upload file
+                      <input
+                        type="file"
+                        accept={FDR_EXTENSIONS.join(',')}
+                        onChange={handleFileChange('fdr')}
+                        className="block w-full text-sm text-gray-700 border border-gray-200 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-50 file:px-4 file:py-2 file:text-emerald-700"
+                      />
+                    </label>
+                    <p className="text-xs text-gray-500">
+                      Accepted formats: {FDR_EXTENSIONS.map((ext) => ext.replace('.', '').toUpperCase()).join(', ')}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {fdrUpload.file
+                        ? `Selected file: ${fdrUpload.file.name} (${formatFileSize(fdrUpload.file.size)})`
+                        : fdrUpload.existingAttachment
+                        ? `Current file: ${fdrUpload.existingAttachment.name || 'Pending upload'}${
+                            fdrUpload.existingAttachment.size ? ` (${fdrUpload.existingAttachment.size})` : ''
+                          }`
+                        : 'No file uploaded yet.'}
+                    </p>
+                  </div>
                   <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
                     Notes
                     <textarea
                       rows={3}
                       value={formValues.uploads.fdr.notes}
-                      onChange={handleUploadFieldChange('fdr', 'notes')}
+                      onChange={handleUploadNotesChange('fdr')}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       placeholder="Add helpful reminders about this dataset"
                     />
@@ -778,46 +758,87 @@ const CaseFormModal = ({
               </div>
 
               <div className="border border-gray-200 rounded-xl p-4">
-                <div className="flex items-start justify-between gap-4">
+                <div className="space-y-4">
                   <div>
                     <p className="text-sm font-semibold text-gray-800">CVR Data</p>
                     <p className="text-xs text-gray-500 mt-1">
-                      Provide the uploaded file name or leave marked for a later upload.
+                      Upload the cockpit voice recording associated with this case.
                     </p>
                   </div>
-                  <label className="flex items-center gap-2 text-xs text-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={formValues.uploads.cvr.willUploadLater}
-                      onChange={handleUploadToggle('cvr')}
-                    />
-                    Upload later
-                  </label>
-                </div>
-                <div className="mt-4 space-y-3">
-                  <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
-                    File name
-                    <input
-                      type="text"
-                      value={formValues.uploads.cvr.fileName}
-                      onChange={handleUploadFieldChange('cvr', 'fileName')}
-                      disabled={formValues.uploads.cvr.willUploadLater}
-                      placeholder="e.g. flight-cvr-audio.zip"
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-gray-100"
-                    />
-                  </label>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
+                      Upload file
+                      <input
+                        type="file"
+                        accept={CVR_EXTENSIONS.join(',')}
+                        onChange={handleFileChange('cvr')}
+                        className="block w-full text-sm text-gray-700 border border-gray-200 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-50 file:px-4 file:py-2 file:text-emerald-700"
+                      />
+                    </label>
+                    <p className="text-xs text-gray-500">
+                      Accepted formats: {CVR_EXTENSIONS.map((ext) => ext.replace('.', '').toUpperCase()).join(', ')}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {cvrUpload.file
+                        ? `Selected file: ${cvrUpload.file.name} (${formatFileSize(cvrUpload.file.size)})`
+                        : cvrUpload.existingAttachment
+                        ? `Current file: ${cvrUpload.existingAttachment.name || 'Pending upload'}${
+                            cvrUpload.existingAttachment.size ? ` (${cvrUpload.existingAttachment.size})` : ''
+                          }`
+                        : 'No file uploaded yet.'}
+                    </p>
+                  </div>
                   <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
                     Notes
                     <textarea
                       rows={3}
                       value={formValues.uploads.cvr.notes}
-                      onChange={handleUploadFieldChange('cvr', 'notes')}
+                      onChange={handleUploadNotesChange('cvr')}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       placeholder="Add helpful reminders about this dataset"
                     />
                   </label>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800">Case Settings</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Update the module and status selections after reviewing the latest uploads.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
+                Module
+                <select
+                  name="module"
+                  value={formValues.module}
+                  onChange={handleChange}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {modules.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
+                Status
+                <select
+                  name="status"
+                  value={formValues.status}
+                  onChange={handleChange}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {statuses.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
 

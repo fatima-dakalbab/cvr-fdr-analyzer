@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import {
     ResponsiveContainer,
@@ -10,8 +10,11 @@ import {
     Line,
     Bar,
 } from "recharts";
+import { fetchCaseByNumber } from "../api/cases";
+import useRecentCases from "../hooks/useRecentCases";
+import { buildCasePreview } from "../utils/caseDisplay";
 
-const caseOptions = [
+const defaultCaseOptions = [
     {
         id: "AAI-UAE-2025-009",
         title: "Abu Dhabi Mid-Air Near Miss",
@@ -315,7 +318,7 @@ const detectionResultSummary = {
     ],
 };
 
-export default function FDR() {
+export default function FDR({ caseNumber }) {
     const [selectedParameters, setSelectedParameters] = useState([
         "Altitude",
         "Airspeed",
@@ -328,7 +331,66 @@ export default function FDR() {
     );
     const [selectedSeverity, setSelectedSeverity] = useState(severityLevels[0]);
     const [isRunningDetection, setIsRunningDetection] = useState(false);
-    const [workflowStage, setWorkflowStage] = useState("caseSelection");
+    const [workflowStage, setWorkflowStage] = useState(
+        caseNumber ? "analysis" : "caseSelection"
+    );
+    const { recentCases, loading: isRecentLoading, error: recentCasesError } =
+        useRecentCases(3);
+    const caseSelectionOptions = useMemo(() => {
+        const mapped = recentCases
+            .map((item) => buildCasePreview(item))
+            .filter(Boolean);
+        return mapped.length > 0 ? mapped : defaultCaseOptions;
+    }, [recentCases]);
+    const [linkError, setLinkError] = useState("");
+    const lastLinkedCaseRef = useRef(null);
+
+    useEffect(() => {
+        if (!caseNumber) {
+            lastLinkedCaseRef.current = null;
+            setLinkError("");
+            setSelectedCase(null);
+            setWorkflowStage("caseSelection");
+            return;
+        }
+
+        if (lastLinkedCaseRef.current === caseNumber) {
+            return;
+        }
+
+        if (selectedCase?.id === caseNumber) {
+            lastLinkedCaseRef.current = caseNumber;
+            setWorkflowStage((prev) => (prev === "caseSelection" ? "analysis" : prev));
+            return;
+        }
+
+        let isMounted = true;
+        setLinkError("");
+
+        fetchCaseByNumber(caseNumber)
+            .then((data) => {
+                if (!isMounted) {
+                    return;
+                }
+
+                const preview = buildCasePreview(data);
+                setSelectedCase(preview);
+                setWorkflowStage("analysis");
+                lastLinkedCaseRef.current = caseNumber;
+            })
+            .catch((err) => {
+                if (!isMounted) {
+                    return;
+                }
+
+                setLinkError(err?.message || "Unable to open the selected case");
+                setWorkflowStage("caseSelection");
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [caseNumber, selectedCase]);
 
     const handleNavigateToCases = () => {
         window.dispatchEvent(new Event("navigateToCases"));
@@ -488,18 +550,33 @@ export default function FDR() {
                     </p>
                 </header>
 
+                {(recentCasesError || linkError) && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        {linkError || recentCasesError}
+                    </div>
+                )}
+                {isRecentLoading && recentCases.length === 0 && (
+                    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+                        Loading recent cases...
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {caseOptions.map((flightCase) => {
+                    {caseSelectionOptions.map((flightCase) => {
                         const isActive = selectedCase?.id === flightCase.id;
                         return (
                             <button
                                 key={flightCase.id}
                                 type="button"
-                                onClick={() => setSelectedCase(flightCase)}
-                                className={`text-left rounded-2xl border transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100 ${isActive
-                                    ? "border-emerald-300 bg-emerald-50"
-                                    : "border-gray-200 bg-white"
-                                    }`}
+                                onClick={() => {
+                                    setSelectedCase(flightCase);
+                                    setLinkError("");
+                                }}
+                                className={`text-left rounded-2xl border transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100 ${
+                                    isActive
+                                        ? "border-emerald-300 bg-emerald-50"
+                                        : "border-gray-200 bg-white"
+                                }`}
                             >
                                 <div className="p-6 space-y-4">
                                     <div className="flex items-center justify-between">
@@ -831,6 +908,20 @@ export default function FDR() {
                             />
                         </div>
                     </aside>
+                </div>
+            </div>
+        );
+    }
+
+    if (workflowStage === "analysis" && !selectedCase) {
+        return (
+            <div className="max-w-4xl mx-auto flex flex-col items-center justify-center gap-4 py-24 text-center">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+                <div className="space-y-1">
+                    <p className="text-sm font-semibold text-emerald-600">Preparing analysis workspace</p>
+                    <p className="text-sm text-gray-600">
+                        Loading the selected case details. This may take a moment.
+                    </p>
                 </div>
             </div>
         );
