@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Calendar,
@@ -40,10 +41,17 @@ const analysisIcon = {
   correlate: Workflow,
 };
 
-const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate }) => {
+const CaseDetails = ({ caseNumber: propCaseNumber }) => {
   const [caseData, setCaseData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
+  const { caseNumber: routeCaseNumber } = useParams();
+  const caseNumber = propCaseNumber || routeCaseNumber;
+
+  const goBack = () => {
+    navigate('/cases');
+  };
 
   useEffect(() => {
     const loadCase = async () => {
@@ -80,7 +88,7 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
         status: analyses.fdr?.status || 'Not Started',
         lastRun: analyses.fdr?.lastRun,
         description: analyses.fdr?.summary || 'No summary available yet.',
-        action: () => onOpenFDR?.(caseNumber),
+        path: `/cases/${caseNumber}/fdr`,
       },
       {
         key: 'cvr',
@@ -88,7 +96,7 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
         status: analyses.cvr?.status || 'Not Started',
         lastRun: analyses.cvr?.lastRun,
         description: analyses.cvr?.summary || 'No summary available yet.',
-        action: () => onOpenCVR?.(caseNumber),
+        path: `/cases/${caseNumber}/cvr`,
       },
       {
         key: 'correlate',
@@ -96,17 +104,17 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
         status: analyses.correlate?.status || 'Not Started',
         lastRun: analyses.correlate?.lastRun,
         description: analyses.correlate?.summary || 'No summary available yet.',
-        action: () => onOpenCorrelate?.(caseNumber),
+        path: `/cases/${caseNumber}/correlate`,
       },
     ];
-  }, [caseData?.analyses, caseNumber, onOpenCVR, onOpenCorrelate, onOpenFDR]);
+  }, [caseData?.analyses, caseNumber]);
 
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto space-y-6">
         <button
           type="button"
-          onClick={onBack}
+          onClick={goBack}
           className="flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -124,7 +132,7 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
       <div className="max-w-5xl mx-auto">
         <button
           type="button"
-          onClick={onBack}
+          onClick={goBack}
           className="flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -150,7 +158,7 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
     <div className="max-w-5xl mx-auto space-y-6">
       <button
         type="button"
-        onClick={onBack}
+        onClick={goBack}
         className="flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700"
       >
         <ArrowLeft className="w-4 h-4" />
@@ -252,7 +260,7 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {analysisCards.map(({ key, title, status, lastRun, description, action }) => {
+          {analysisCards.map(({ key, title, status, lastRun, description, path }) => {
             const Icon = analysisIcon[key];
             return (
               <div key={key} className="border border-gray-200 rounded-xl p-4 bg-gray-50/60 flex flex-col gap-3">
@@ -269,7 +277,7 @@ const CaseDetails = ({ caseNumber, onBack, onOpenFDR, onOpenCVR, onOpenCorrelate
                 <p className="text-xs text-gray-500">{lastRun ? `Last updated ${lastRun}` : 'No runs yet'}</p>
                 <button
                   type="button"
-                  onClick={action}
+                  onClick={() => navigate(path)}
                   className="mt-auto text-sm font-semibold text-emerald-600 hover:text-emerald-700"
                 >
                   Open module →
