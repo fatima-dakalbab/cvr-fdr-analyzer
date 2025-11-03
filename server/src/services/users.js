@@ -120,4 +120,3 @@ module.exports = {
   updateUserPassword,
   sanitizeUser,
 };
-

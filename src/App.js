@@ -18,7 +18,102 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 const ProtectedRoute = ({ children }) => {
   const { user, isLoading } = useAuth();
 
-  if (isLoading) {
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setCurrentUser('');
+    setLoginForm({ username: '', password: '' });
+    setCurrentView('login');
+    setShowUserMenu(false);
+    setCurrentPage('dashboard');
+    setActiveCaseNumber(null);
+    setIsCreateCaseOpen(false);
+  };
+
+  const openCaseDetails = (caseNumber) => {
+    if (caseNumber) {
+      setActiveCaseNumber(caseNumber);
+    }
+    setCurrentPage('case-details');
+  };
+
+  const openFDR = (caseNumber) => {
+    setActiveCaseNumber(caseNumber || null);
+    setCurrentPage('fdr');
+  };
+
+  const openCVR = (caseNumber) => {
+    setActiveCaseNumber(caseNumber || null);
+    setCurrentPage('cvr');
+  };
+
+  const openCorrelate = (caseNumber) => {
+    setActiveCaseNumber(caseNumber || null);
+    setCurrentPage('correlate');
+  };
+
+  const handleNavigateHome = () => {
+    setCurrentPage('dashboard');
+    setActiveCaseNumber(null);
+    setShowNotifications(false);
+    setShowUserMenu(false);
+    setIsCreateCaseOpen(false);
+  };
+
+  const handleStartNewCase = () => {
+    setCurrentPage('cases');
+    setIsCreateCaseOpen(true);
+  };
+
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'dashboard':
+        return (
+          <Dashboard
+            onStartNewCase={handleStartNewCase}
+            onOpenCases={() => setCurrentPage('cases')}
+            onOpenCaseDetails={openCaseDetails}
+            currentUser={currentUser}
+          />
+        );
+      case 'cases':
+        return (
+          <Cases
+            onStartNewCase={handleStartNewCase}
+            onOpenFDR={openFDR}
+            onOpenCVR={openCVR}
+            onOpenCorrelate={openCorrelate}
+            onOpenCaseDetails={openCaseDetails}
+            isCreateCaseOpen={isCreateCaseOpen}
+            onCloseCreateCase={() => setIsCreateCaseOpen(false)}
+          />
+        );
+      case 'case-details':
+        return (
+          <CaseDetails
+            caseNumber={activeCaseNumber}
+            onBack={() => setCurrentPage('cases')}
+            onOpenFDR={openFDR}
+            onOpenCVR={openCVR}
+            onOpenCorrelate={openCorrelate}
+          />
+        );
+      case 'fdr':
+        return <FDR caseNumber={activeCaseNumber} />;
+      case 'cvr':
+        return <CVR caseNumber={activeCaseNumber} />;
+      case 'correlate':
+        return <Correlate caseNumber={activeCaseNumber} />;
+      case 'reports':
+        return <Reports />;
+      case 'help':
+        return <HelpCenter onOpenGettingStarted={() => setCurrentPage('help')} />;
+      default:
+        return null;
+    }
+  };
+
+  if (isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-gray-600">Loading your workspace…</div>
@@ -70,4 +165,3 @@ const App = () => (
 );
 
 export default App;
-

@@ -32,4 +32,3 @@ module.exports = {
   hashPassword,
   verifyPassword,
 };
-

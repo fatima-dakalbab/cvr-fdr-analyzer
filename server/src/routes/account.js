@@ -66,4 +66,3 @@ router.post('/password', async (req, res, next) => {
 });
 
 module.exports = router;
-
