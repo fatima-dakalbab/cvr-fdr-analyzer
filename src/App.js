@@ -191,11 +191,11 @@ const CVRFDRApp = () => {
           />
         );
       case 'fdr':
-        return <FDR />;
+        return <FDR caseNumber={activeCaseNumber} />;
       case 'cvr':
-        return <CVR />;
+        return <CVR caseNumber={activeCaseNumber} />;
       case 'correlate':
-        return <Correlate />;
+        return <Correlate caseNumber={activeCaseNumber} />;
       case 'reports':
         return <Reports />;
       case 'help':
