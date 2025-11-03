@@ -382,9 +382,6 @@ export default function CVR({ caseNumber }) {
     useEffect(() => {
         if (!caseNumber) {
             lastLinkedCaseRef.current = null;
-            setLinkError("");
-            setSelectedCase(null);
-            setWorkflowStage("caseSelection");
             return;
         }
 
