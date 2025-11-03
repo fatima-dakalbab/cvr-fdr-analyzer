@@ -123,23 +123,17 @@ const CVRFDRApp = () => {
   };
 
   const openFDR = (caseNumber) => {
-    if (caseNumber) {
-      setActiveCaseNumber(caseNumber);
-    }
+    setActiveCaseNumber(caseNumber || null);
     setCurrentPage('fdr');
   };
 
   const openCVR = (caseNumber) => {
-    if (caseNumber) {
-      setActiveCaseNumber(caseNumber);
-    }
+    setActiveCaseNumber(caseNumber || null);
     setCurrentPage('cvr');
   };
 
   const openCorrelate = (caseNumber) => {
-    if (caseNumber) {
-      setActiveCaseNumber(caseNumber);
-    }
+    setActiveCaseNumber(caseNumber || null);
     setCurrentPage('correlate');
   };
 
@@ -191,11 +185,11 @@ const CVRFDRApp = () => {
           />
         );
       case 'fdr':
-        return <FDR />;
+        return <FDR caseNumber={activeCaseNumber} />;
       case 'cvr':
-        return <CVR />;
+        return <CVR caseNumber={activeCaseNumber} />;
       case 'correlate':
-        return <Correlate />;
+        return <Correlate caseNumber={activeCaseNumber} />;
       case 'reports':
         return <Reports />;
       case 'help':
