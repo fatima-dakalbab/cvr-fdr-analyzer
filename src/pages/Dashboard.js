@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, FolderOpen, Clock } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -12,6 +13,7 @@ import {
 } from 'recharts';
 import MapCases from '../components/MapCases';
 import { fetchCases } from '../api/cases';
+import { useAuth } from '../hooks/useAuth';
 
 const chartData = [
   { month: 'Jan', accidents: 2, incidents: 1 },
@@ -40,9 +42,11 @@ const actionCards = [
   },
 ];
 
-const Dashboard = ({ currentUser = '', onStartNewCase = () => {}, onOpenCases = () => {}, onOpenCaseDetails = () => {} }) => {
+const Dashboard = () => {
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
     const loadCases = async () => {
@@ -72,22 +76,22 @@ const Dashboard = ({ currentUser = '', onStartNewCase = () => {}, onOpenCases = 
 
   const handleAction = (key) => {
     if (key === 'startNewCase') {
-      onStartNewCase();
+      navigate('/cases', { state: { openNewCase: true } });
     }
 
     if (key === 'openCases') {
-      onOpenCases();
+      navigate('/cases');
     }
 
     if (key === 'openRecent' && recentCases[0]) {
-      onOpenCaseDetails(recentCases[0].caseNumber);
+      navigate(`/cases/${recentCases[0].caseNumber}`);
     }
   };
 
   return (
     <div className="max-w-7xl mx-auto">
       <h2 className="text-3xl font-bold text-gray-800 mb-8">
-        {currentUser ? `Welcome back, ${currentUser}!` : 'Welcome back!'}
+        {user?.firstName ? `Welcome back, ${user.firstName}!` : 'Welcome back!'}
       </h2>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -142,7 +146,7 @@ const Dashboard = ({ currentUser = '', onStartNewCase = () => {}, onOpenCases = 
                 <tr
                   key={caseItem.caseNumber}
                   className="hover:bg-gray-50 border-b cursor-pointer"
-                  onClick={() => onOpenCaseDetails(caseItem.caseNumber)}
+                  onClick={() => navigate(`/cases/${caseItem.caseNumber}`)}
                 >
                   <td className="px-4 py-3 text-sm">{caseItem.date || caseItem.lastUpdated || '—'}</td>
                   <td className="px-4 py-3 text-sm">{caseItem.organization || '—'}</td>
