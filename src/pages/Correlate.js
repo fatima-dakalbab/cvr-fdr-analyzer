@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PlaneTakeoff, AlertTriangle, Workflow, Download, ArrowRight, Loader2, ChevronRight } from "lucide-react";
 import { fetchCaseByNumber } from "../api/cases";
 import useRecentCases from "../hooks/useRecentCases";
-import { buildCasePreview, getRecorderAvailability } from "../utils/caseDisplay";
+import { buildCasePreview } from "../utils/caseDisplay";
 import {
     Area,
     AreaChart,
@@ -296,9 +296,6 @@ const defaultCasePreviews = CASES.map((item) => ({
     location: item.location,
     source: item,
     template: item,
-    hasFdrData: true,
-    hasCvrData: true,
-    canCorrelate: true,
 }));
 
 const parameterColors = {
@@ -357,12 +354,6 @@ const Correlate = ({ caseNumber }) => {
     useEffect(() => {
         if (!caseNumber) {
             lastLinkedCaseRef.current = null;
-            setLinkError("");
-            setSelectedCase(null);
-            setSelectedCaseId(null);
-            if (workflowStage !== "caseSelection") {
-                setWorkflowStage("caseSelection");
-            }
             return;
         }
 
@@ -392,27 +383,23 @@ const Correlate = ({ caseNumber }) => {
                     throw new Error("Unable to open the selected case");
                 }
 
-                const matchingTemplate = caseSelectionOptions.find(
-                    (option) => option.id === preview.id
-                )?.template;
-                const merged = mergeWithTemplate(preview, matchingTemplate);
+                const template =
+                    (preview.source && preview.source.timeline
+                        ? preview.source
+                        : caseSelectionOptions.find((option) => option.id === preview.id)?.template) ||
+                    CASES[0];
 
-                if (!merged) {
-                    throw new Error("Unable to prepare the selected case");
-                }
+                const merged = {
+                    ...(template || {}),
+                    id: preview.id,
+                    title: preview.title,
+                    summary: preview.summary,
+                    aircraft: preview.aircraft,
+                    date: preview.date,
+                };
 
                 setSelectedCaseId(preview.id);
                 setSelectedCase(merged);
-
-                if (merged.hasFdrData === false || merged.hasCvrData === false) {
-                    setLinkError(
-                        "Correlation requires both FDR and CVR data to be uploaded for this case."
-                    );
-                    setWorkflowStage("caseSelection");
-                    lastLinkedCaseRef.current = null;
-                    return;
-                }
-
                 setWorkflowStage("loading");
                 lastLinkedCaseRef.current = caseNumber;
             })
@@ -432,10 +419,23 @@ const Correlate = ({ caseNumber }) => {
         };
     }, [caseNumber, selectedCase, workflowStage, caseSelectionOptions]);
 
-    const mergeWithTemplate = (option, fallbackTemplate) => {
+    const mergeWithTemplate = (option) => {
         if (!option) {
             return null;
         }
+
+        const template = option.source?.timeline ? option.source : option.template || CASES[0];
+
+        return {
+            ...(template || {}),
+            id: option.id,
+            title: option.title,
+            summary: option.summary,
+            aircraft: option.aircraft,
+            date: option.date,
+            location: option.location ?? template?.location ?? "",
+        };
+    };
 
         const source = option.source && typeof option.source === "object" ? option.source : {};
         const templateCandidate =
@@ -519,7 +519,7 @@ const Correlate = ({ caseNumber }) => {
 
     const handleCaseSelect = (option) => {
         setSelectedCaseId(option.id);
-        setSelectedCase(mergeWithTemplate(option, option.template));
+        setSelectedCase(mergeWithTemplate(option));
         setLinkError("");
     };
 

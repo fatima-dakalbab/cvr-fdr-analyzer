@@ -348,9 +348,6 @@ export default function FDR({ caseNumber }) {
     useEffect(() => {
         if (!caseNumber) {
             lastLinkedCaseRef.current = null;
-            setLinkError("");
-            setSelectedCase(null);
-            setWorkflowStage("caseSelection");
             return;
         }
 
@@ -635,6 +632,7 @@ export default function FDR({ caseNumber }) {
                             </span>
                         </div>
                     </button>
+                </div>
                 </div>
 
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
