@@ -534,7 +534,7 @@ export default function FDR({ caseNumber }) {
 
     if (workflowStage === "caseSelection") {
         return (
-            <div className="max-w-6xl mx-auto space-y-8">
+            <><div className="max-w-6xl mx-auto space-y-8">
                 <header className="space-y-2">
                     <p className="text-sm font-semibold text-emerald-600">FDR Module</p>
                     <h1 className="text-3xl font-bold text-gray-900">
@@ -568,12 +568,10 @@ export default function FDR({ caseNumber }) {
                                 onClick={() => {
                                     setSelectedCase(flightCase);
                                     setLinkError("");
-                                }}
-                                className={`text-left rounded-2xl border transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100 ${
-                                    isActive
+                                } }
+                                className={`text-left rounded-2xl border transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100 ${isActive
                                         ? "border-emerald-300 bg-emerald-50"
-                                        : "border-gray-200 bg-white"
-                                }`}
+                                        : "border-gray-200 bg-white"}`}
                             >
                                 <div className="p-6 space-y-4">
                                     <div className="flex items-center justify-between">
@@ -633,9 +631,7 @@ export default function FDR({ caseNumber }) {
                         </div>
                     </button>
                 </div>
-                </div>
-
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            </div><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div className="space-y-1 text-sm text-gray-500">
                         <p>Select a case to detect anomalies in FDR data.</p>
                     </div>
@@ -647,8 +643,7 @@ export default function FDR({ caseNumber }) {
                     >
                         Continue to parameter selection
                     </button>
-                </div>
-            </div>
+                </div></>
         );
     }
 

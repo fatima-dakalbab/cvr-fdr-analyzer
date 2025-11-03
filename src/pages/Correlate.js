@@ -257,7 +257,14 @@ const FALLBACK_CASES = [
     },
 ];
 
-const defaultCasePreviews = CASES.map((item) => ({
+// infer availability if upstream preview/source doesn't provide explicit flags
+const getRecorderAvailability = (source = {}) => {
+    const hasFdrData = Array.isArray(source.parameters) ? source.parameters.length > 0 : false;
+    const hasCvrData = Array.isArray(source.timeline) ? source.timeline.length > 0 : false;
+    return { hasFdrData, hasCvrData };
+};
+
+const defaultCasePreviews = FALLBACK_CASES.map((item) => ({
     id: item.id,
     title: item.title,
     date: item.date,
@@ -286,6 +293,8 @@ const Correlate = ({ caseNumber }) => {
     const [selectedCase, setSelectedCase] = useState(null);
     const { recentCases, loading: isRecentLoading, error: recentCasesError } =
         useRecentCases(3);
+    const loadingTimerRef = useRef(null); // <-- added
+
     const caseSelectionOptions = useMemo(() => {
         const mapped = recentCases
             .map((item, index) => {
@@ -294,11 +303,11 @@ const Correlate = ({ caseNumber }) => {
                     return null;
                 }
 
-                const template = CASES[index % CASES.length];
+                const template = FALLBACK_CASES[index % FALLBACK_CASES.length];
 
                 return {
                     ...preview,
-                    location: preview.location || template?.location || '',
+                    location: preview.location || template?.location || "",
                     template,
                 };
             })
@@ -306,6 +315,7 @@ const Correlate = ({ caseNumber }) => {
 
         return mapped.length > 0 ? mapped : defaultCasePreviews;
     }, [recentCases]);
+
     const [linkError, setLinkError] = useState("");
     const lastLinkedCaseRef = useRef(null);
 
@@ -333,8 +343,6 @@ const Correlate = ({ caseNumber }) => {
 
         setWorkflowStage("loading");
         setLinkError("");
-
-    useEffect(() => {
         if (!caseNumber) {
             lastLinkedCaseRef.current = null;
             return;
@@ -370,7 +378,7 @@ const Correlate = ({ caseNumber }) => {
                     (preview.source && preview.source.timeline
                         ? preview.source
                         : caseSelectionOptions.find((option) => option.id === preview.id)?.template) ||
-                    CASES[0];
+                    FALLBACK_CASES[0];
 
                 const merged = {
                     ...(template || {}),
@@ -407,25 +415,11 @@ const Correlate = ({ caseNumber }) => {
             return null;
         }
 
-        const template = option.source?.timeline ? option.source : option.template || CASES[0];
-
-        return {
-            ...(template || {}),
-            id: option.id,
-            title: option.title,
-            summary: option.summary,
-            aircraft: option.aircraft,
-            date: option.date,
-            location: option.location ?? template?.location ?? "",
-        };
-    };
-
         const source = option.source && typeof option.source === "object" ? option.source : {};
         const templateCandidate =
             (Array.isArray(source.timeline) && source.timeline.length > 0 ? source : null) ||
-            fallbackTemplate ||
             option.template ||
-            CASES[0];
+            FALLBACK_CASES[0];
 
         const timeline = Array.isArray(source.timeline) && source.timeline.length > 0
             ? source.timeline
@@ -629,19 +623,13 @@ const Correlate = ({ caseNumber }) => {
                     </p>
                     <button
                         type="button"
-                        disabled={!canStart}
-                        onClick={() => canStart && setWorkflowStage("loading")}
+                        disabled={!Boolean(selectedCaseId)}
+                        onClick={() => selectedCaseId && setWorkflowStage("loading")}
                         className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-emerald-200 disabled:text-emerald-50 bg-emerald-600 hover:bg-emerald-700"
                     >
                         Start synchronization
                         <ArrowRight className="w-4 h-4" />
                     </button>
-                    {!canStart && selectedCaseId && (
-                        <p className="text-xs font-medium text-amber-600 md:ml-4 md:text-right">
-                            Correlation requires {missingLabel}. Please upload the missing data before
-                            continuing.
-                        </p>
-                    )}
                 </div>
             </div>
         );
@@ -740,11 +728,11 @@ const Correlate = ({ caseNumber }) => {
                         <p className="text-xs uppercase tracking-wide text-gray-500">Highlighted Emotion</p>
                         <div className="mt-2 flex items-center gap-3">
                             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-emerald-600 shadow-sm">
-                                {highlightedEmotion.speaker?.charAt(0) || "C"}
+                                {selectedCase.highlightedEmotion?.speaker?.charAt(0) || "C"}
                             </div>
                             <div>
-                                <p className="text-sm font-semibold text-gray-900">{highlightedEmotion.speaker}</p>
-                                <p className="text-sm text-gray-600">{highlightedEmotion.emotion}</p>
+                                <p className="text-sm font-semibold text-gray-900">{selectedCase.highlightedEmotion?.speaker}</p>
+                                <p className="text-sm text-gray-600">{selectedCase.highlightedEmotion?.emotion}</p>
                             </div>
                         </div>
                     </div>
@@ -752,7 +740,7 @@ const Correlate = ({ caseNumber }) => {
                         <p className="text-xs uppercase text-gray-500 font-semibold">Aircraft</p>
                         <p className="text-sm font-medium text-gray-900 mt-1">{selectedCase.aircraft}</p>
                         <p className="text-xs text-gray-500 mt-4 uppercase font-semibold">Flight</p>
-                        <p className="text-sm text-gray-900 mt-1">{flightLabel}</p>
+                        <p className="text-sm text-gray-900 mt-1">{selectedCase.flight || "Flight details pending"}</p>
                     </div>
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
                         <p className="text-xs uppercase text-gray-500 font-semibold">Date</p>
@@ -830,21 +818,21 @@ const Correlate = ({ caseNumber }) => {
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-xs uppercase tracking-wide text-gray-500">Primary Synchronized Event</p>
-                                <h2 className="text-xl font-semibold text-gray-900">{primaryEvent.transcript}</h2>
+                                <h2 className="text-xl font-semibold text-gray-900">{(timeline[3] || timeline[0])?.transcript || "—"}</h2>
                                 <p className="mt-1 text-sm text-gray-600">
-                                    Occurred at <span className="font-semibold">{primaryEvent.time}</span> from {primaryEvent.speaker || "Unknown"}
+                                    Occurred at <span className="font-semibold">{(timeline[3] || timeline[0])?.time || "—"}</span> from {(timeline[3] || timeline[0])?.speaker || "Unknown"}
                                 </p>
                             </div>
-                            {emotionBadge(primaryEvent.emotion, primaryEvent.emotionColor || "bg-slate-100 text-slate-600")}
+                            {emotionBadge((timeline[3] || timeline[0])?.emotion || "Neutral", (timeline[3] || timeline[0])?.emotionColor || "bg-slate-100 text-slate-600")}
                         </div>
                         <div className="mt-4 grid gap-3 sm:grid-cols-3">
                             <div className="rounded-lg bg-gray-50 px-3 py-2">
                                 <p className="text-xs text-gray-500 uppercase">FDR Event</p>
-                                <p className="text-sm font-semibold text-gray-900">{primaryEvent.fdrEvent}</p>
+                                <p className="text-sm font-semibold text-gray-900">{(timeline[3] || timeline[0])?.fdrEvent || "—"}</p>
                             </div>
                             <div className="rounded-lg bg-gray-50 px-3 py-2">
                                 <p className="text-xs text-gray-500 uppercase">Recorded Value</p>
-                                <p className="text-sm font-semibold text-gray-900">{primaryEvent.fdrValue}</p>
+                                <p className="text-sm font-semibold text-gray-900">{(timeline[3] || timeline[0])?.fdrValue || "—"}</p>
                             </div>
                             <div className="rounded-lg bg-gray-50 px-3 py-2">
                                 <p className="text-xs text-gray-500 uppercase">Timeline Window</p>
@@ -858,7 +846,7 @@ const Correlate = ({ caseNumber }) => {
                     <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
                         <h3 className="text-lg font-semibold text-gray-900">Transcript &amp; Emotion</h3>
                         <p className="text-sm text-gray-600 mt-1">
-                            {highlightedEmotion.speaker}: {highlightedEmotion.emotion}
+                            {selectedCase.highlightedEmotion?.speaker}: {selectedCase.highlightedEmotion?.emotion}
                         </p>
                         <div className="mt-4 space-y-3 text-sm text-gray-700">
                             {timeline.slice(0, 3).map((entry, index) => (
@@ -870,6 +858,8 @@ const Correlate = ({ caseNumber }) => {
                                     <p className="mt-3 text-xs font-medium text-gray-500">Timestamp: {entry.time}</p>
                                 </div>
                             ))}
+                        </div>
+                    </div>
 
                     <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
                         <h3 className="text-lg font-semibold text-gray-900">Flight Parameters</h3>
@@ -879,7 +869,7 @@ const Correlate = ({ caseNumber }) => {
                                     <p className="uppercase text-xs font-semibold text-gray-500">{label}</p>
                                     <p className="text-gray-900 font-medium mt-1">{value}</p>
                                 </div>
-                            )}
+                            ))}
                         </div>
                     </div>
                 </div>
