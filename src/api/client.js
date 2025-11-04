@@ -1,4 +1,33 @@
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '/api';
+const DEFAULT_API_PREFIX = '/api';
+
+const trimTrailingSlashes = (value = '') => value.replace(/\/+$/, '');
+
+const resolveApiBaseUrl = () => {
+  const rawBase = trimTrailingSlashes(process.env.REACT_APP_API_BASE_URL || '');
+
+  if (!rawBase) {
+    return DEFAULT_API_PREFIX;
+  }
+
+  const extractPathSegments = (value) => {
+    try {
+      const { pathname } = new URL(value);
+      return pathname.split('/').filter(Boolean);
+    } catch (_error) {
+      return value.split('/').filter(Boolean);
+    }
+  };
+
+  const pathSegments = extractPathSegments(rawBase).map((segment) => segment.toLowerCase());
+
+  if (pathSegments.includes('api')) {
+    return rawBase;
+  }
+
+  return `${rawBase}${DEFAULT_API_PREFIX}`;
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 const getStoredToken = () => {
   if (typeof window === 'undefined') {
@@ -21,7 +50,8 @@ const request = async (path, options = {}) => {
     }
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const response = await fetch(`${API_BASE_URL}${normalizedPath}`, {
     ...options,
     headers,
   });
