@@ -15,7 +15,7 @@ import {
     YAxis,
 } from "recharts";
 
-const CASES = [
+const FALLBACK_CASES = [
     {
         id: "AAI-UAE-2025-001",
         title: "Runway excursion during initial climb",
@@ -199,47 +199,17 @@ const CASES = [
     {
         id: "AAI-UAE-2024-022",
         title: "Emergency descent after cabin pressure loss",
-        aircraft: "Boeing 737-8 MAX",
-        flight: "GT312 - Sharjah to Cairo",
-        date: "19 Sep 2024",
-        location: "En-route over the Arabian Gulf",
+        aircraft: "Boeing 737 MAX 8",
+        flight: "WY312 - Muscat to Riyadh",
+        date: "12 Dec 2024",
+        location: "Over Arabian Gulf",
         summary:
-            "Rapid cabin depressurization during climb triggered oxygen mask deployment and an immediate return to departure airport.",
+            "Cabin pressure anomaly triggered an emergency descent and diversion to Muscat. No injuries reported.",
         timeline: [
             {
-                time: "06:12:08",
-                speaker: "First Officer",
-                role: "Pilot Monitoring",
-                transcript: "Climb checklist complete.",
-                emotion: "Calm",
-                emotionColor: "bg-emerald-100 text-emerald-700",
-                fdrEvent: "Cabin Rate",
-                fdrValue: "500 ft/min",
-            },
-            {
-                time: "06:14:20",
-                speaker: "ATC",
-                role: "Departure",
-                transcript: "Climb and maintain flight level 360.",
-                emotion: "Neutral",
-                emotionColor: "bg-slate-100 text-slate-700",
-                fdrEvent: "Altitude",
-                fdrValue: "18,000 ft",
-            },
-            {
-                time: "06:15:42",
-                speaker: "Captain",
-                role: "Pilot Flying",
-                transcript: "Setting climb power, keep an eye on cabin altitude.",
-                emotion: "Focused",
-                emotionColor: "bg-blue-100 text-blue-700",
-                fdrEvent: "Cabin Altitude",
-                fdrValue: "6,500 ft",
-            },
-            {
-                time: "06:16:18",
-                speaker: "Warning System",
-                role: "Aircraft",
+                time: "06:12:47",
+                speaker: "Cabin",
+                role: "System",
                 transcript: "Cabin altitude warning.",
                 emotion: "Alert",
                 emotionColor: "bg-amber-100 text-amber-700",
@@ -288,7 +258,14 @@ const CASES = [
     },
 ];
 
-const defaultCasePreviews = CASES.map((item) => ({
+// infer availability if upstream preview/source doesn't provide explicit flags
+const getRecorderAvailability = (source = {}) => {
+    const hasFdrData = Array.isArray(source.parameters) ? source.parameters.length > 0 : false;
+    const hasCvrData = Array.isArray(source.timeline) ? source.timeline.length > 0 : false;
+    return { hasFdrData, hasCvrData };
+};
+
+const defaultCasePreviews = FALLBACK_CASES.map((item) => ({
     id: item.id,
     title: item.title,
     date: item.date,
@@ -320,6 +297,8 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
     const [selectedCase, setSelectedCase] = useState(null);
     const { recentCases, loading: isRecentLoading, error: recentCasesError } =
         useRecentCases(3);
+    const loadingTimerRef = useRef(null); // <-- added
+
     const caseSelectionOptions = useMemo(() => {
         const mapped = recentCases
             .map((item, index) => {
@@ -328,11 +307,11 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                     return null;
                 }
 
-                const template = CASES[index % CASES.length];
+                const template = FALLBACK_CASES[index % FALLBACK_CASES.length];
 
                 return {
                     ...preview,
-                    location: preview.location || template?.location || '',
+                    location: preview.location || template?.location || "",
                     template,
                 };
             })
@@ -340,22 +319,34 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
 
         return mapped.length > 0 ? mapped : defaultCasePreviews;
     }, [recentCases]);
+
     const [linkError, setLinkError] = useState("");
     const lastLinkedCaseRef = useRef(null);
 
     useEffect(() => {
-        if (workflowStage !== "loading") {
-            return undefined;
-        }
-
-        const timeoutId = setTimeout(() => {
-            setWorkflowStage("analysis");
-        }, 1600);
-
-        return () => clearTimeout(timeoutId);
-    }, [workflowStage]);
+        return () => {
+            if (loadingTimerRef.current) {
+                clearTimeout(loadingTimerRef.current);
+            }
+        };
+    }, []);
 
     useEffect(() => {
+        if (!caseNumber) {
+            lastLinkedCaseRef.current = null;
+            setLinkError("");
+            setSelectedCaseId(null);
+            setSelectedCase(null);
+            setWorkflowStage("caseSelection");
+            return;
+        }
+
+        if (lastLinkedCaseRef.current === caseNumber) {
+            return;
+        }
+
+        setWorkflowStage("loading");
+        setLinkError("");
         if (!caseNumber) {
             lastLinkedCaseRef.current = null;
             return;
@@ -391,7 +382,7 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                     (preview.source && preview.source.timeline
                         ? preview.source
                         : caseSelectionOptions.find((option) => option.id === preview.id)?.template) ||
-                    CASES[0];
+                    FALLBACK_CASES[0];
 
                 const merged = {
                     ...(template || {}),
@@ -428,20 +419,80 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
             return null;
         }
 
-        const template = option.source?.timeline ? option.source : option.template || CASES[0];
+        const source = option.source && typeof option.source === "object" ? option.source : {};
+        const templateCandidate =
+            (Array.isArray(source.timeline) && source.timeline.length > 0 ? source : null) ||
+            option.template ||
+            FALLBACK_CASES[0];
+
+        const timeline = Array.isArray(source.timeline) && source.timeline.length > 0
+            ? source.timeline
+            : Array.isArray(templateCandidate?.timeline)
+            ? templateCandidate.timeline
+            : [];
+
+        const parameters = Array.isArray(source.parameters) && source.parameters.length > 0
+            ? source.parameters
+            : templateCandidate?.parameters || [];
+
+        const highlightedEmotion = source.highlightedEmotion ||
+            templateCandidate?.highlightedEmotion || {
+                speaker: "Correlation Engine",
+                emotion: "Awaiting synchronized events.",
+            };
+
+        const keyParameters =
+            source.keyParameters && typeof source.keyParameters === "object"
+                ? source.keyParameters
+                : templateCandidate?.keyParameters || {};
+
+        const availability = getRecorderAvailability(source);
+        const hasFdrData = option.hasFdrData ?? availability.hasFdrData ?? true;
+        const hasCvrData = option.hasCvrData ?? availability.hasCvrData ?? true;
 
         return {
-            ...(template || {}),
+            ...(templateCandidate || {}),
+            timeline,
+            parameters,
+            keyParameters,
+            highlightedEmotion,
             id: option.id,
             title: option.title,
             summary: option.summary,
             aircraft: option.aircraft,
             date: option.date,
-            location: option.location ?? template?.location ?? "",
+            location: option.location ?? templateCandidate?.location ?? "",
+            hasFdrData,
+            hasCvrData,
+            canCorrelate: option.canCorrelate ?? (hasFdrData && hasCvrData),
         };
     };
 
-    const primaryEvent = selectedCase?.timeline?.[3] || selectedCase?.timeline?.[0];
+    const timeline = Array.isArray(selectedCase?.timeline) ? selectedCase.timeline : [];
+    const parameters = Array.isArray(selectedCase?.parameters) ? selectedCase.parameters : [];
+    const keyParameters =
+        selectedCase?.keyParameters && typeof selectedCase.keyParameters === "object"
+            ? selectedCase.keyParameters
+            : {};
+    const highlightedEmotion = selectedCase?.highlightedEmotion || {
+        speaker: "Correlation Engine",
+        emotion: "Awaiting synchronized insights.",
+    };
+    const primaryEvent =
+        timeline[3] ||
+        timeline[0] || {
+            time: "00:00:00",
+            transcript: "No synchronized events available yet.",
+            fdrEvent: "Correlation pending",
+            fdrValue: "Awaiting data",
+            emotion: "Neutral",
+            emotionColor: "bg-slate-100 text-slate-600",
+            speaker: "Correlation Engine",
+            role: "",
+        };
+    const timelineStart = timeline[0]?.time || "Start TBD";
+    const timelineEnd = timeline[timeline.length - 1]?.time || "End TBD";
+    const flightLabel = selectedCase?.flight || "Flight details pending";
 
     const handleNavigateToCases = () => {
         navigate("/cases");
@@ -455,14 +506,36 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
 
 
     if (workflowStage === "caseSelection") {
+        const selectedOption = caseSelectionOptions.find(
+            (item) => item.id === selectedCaseId
+        );
+        const missingSources = [];
+        if (selectedOption) {
+            if (selectedOption.hasFdrData === false) {
+                missingSources.push("FDR");
+            }
+            if (selectedOption.hasCvrData === false) {
+                missingSources.push("CVR");
+            }
+        }
+        const canStart = Boolean(selectedCaseId && missingSources.length === 0);
+        const missingLabel =
+            missingSources.length === 2
+                ? "FDR and CVR data uploads"
+                : missingSources.length === 1
+                ? `${missingSources[0]} data upload`
+                : "";
+
         return (
             <div className="max-w-6xl mx-auto space-y-8">
                 <header className="space-y-2">
                     <p className="text-sm font-semibold text-emerald-600">Correlation Workspace</p>
-                    <h1 className="text-3xl font-bold text-gray-900">Select a Case to Synchronize FDR &amp; CVR</h1>
+                    <h1 className="text-3xl font-bold text-gray-900">
+                        Select a Case to Synchronize FDR &amp; CVR
+                    </h1>
                     <p className="text-gray-600 max-w-3xl">
-                        Choose the investigation file you want to align first. Once a case is selected, the system will load the cockpit
-                        transcript, flight recorder data, and correlation insights for synchronized analysis.
+                        Choose the investigation file you want to align first. Once a case is selected, the system will load the
+                        cockpit transcript, flight recorder data, and correlation insights for synchronized analysis.
                     </p>
                 </header>
 
@@ -480,6 +553,8 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {caseSelectionOptions.map((item) => {
                         const isActive = item.id === selectedCaseId;
+                        const requiresData = item.hasFdrData === false || item.hasCvrData === false;
+
                         return (
                             <button
                                 key={item.id}
@@ -506,10 +581,23 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                                         <span className="text-gray-500">Location</span>
                                         <span className="font-medium text-gray-800">{item.location}</span>
                                     </div>
+                                    {(item.hasFdrData === false || item.hasCvrData === false) && (
+                                        <div className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                                            <AlertTriangle className="h-3 w-3" />
+                                            {[
+                                                item.hasFdrData === false ? "FDR" : null,
+                                                item.hasCvrData === false ? "CVR" : null,
+                                            ]
+                                                .filter(Boolean)
+                                                .join(" & ")}{" "}
+                                            data required
+                                        </div>
+                                    )}
                                 </div>
                             </button>
                         );
                     })}
+
                     <button
                         type="button"
                         onClick={handleNavigateToCases}
@@ -533,13 +621,13 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                     </button>
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <p className="text-sm text-gray-500">
                         Select a case to unlock synchronized analysis of recorder sources.
                     </p>
                     <button
                         type="button"
-                        disabled={!selectedCaseId}
+                        disabled={!Boolean(selectedCaseId)}
                         onClick={() => selectedCaseId && setWorkflowStage("loading")}
                         className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition focus:outline-none focus:ring-4 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-emerald-200 disabled:text-emerald-50 bg-emerald-600 hover:bg-emerald-700"
                     >
@@ -573,7 +661,8 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                     <h1 className="text-3xl font-bold text-gray-900">Preparing synchronized analysis</h1>
                     <p className="text-gray-600 max-w-2xl mx-auto">
                         We&apos;re aligning cockpit voice recordings with flight recorder parameters for
-                        <span className="font-semibold"> {selectedCase.id}</span>. Sit tight while we fetch correlation highlights.
+                        <span className="font-semibold"> {selectedCase?.id || "the selected case"}</span>. Sit tight while we
+                        fetch correlation highlights.
                     </p>
                 </div>
 
@@ -600,6 +689,20 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
         );
     }
 
+    if (!selectedCase) {
+        return (
+            <div className="max-w-4xl mx-auto flex flex-col items-center justify-center gap-4 py-24 text-center">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+                <div className="space-y-1">
+                    <p className="text-sm font-semibold text-emerald-600">Preparing correlation workspace</p>
+                    <p className="text-sm text-gray-600">
+                        Loading the selected case details. Analysis will begin shortly.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
             <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
@@ -608,48 +711,40 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                         <p className="text-sm font-semibold uppercase tracking-wide text-emerald-600">
                             Correlation Workspace
                         </p>
-                        <h1 className="text-2xl font-semibold text-gray-900">
-                            FDR & CVR Synchronization
-                        </h1>
-                        <p className="text-gray-600 mt-1 max-w-2xl">
-                            Select an incident case to align cockpit conversations with flight data records,
-                            visualize critical parameters and highlight notable correlation points.
+                        <h1 className="text-2xl font-semibold text-gray-900">FDR &amp; CVR Synchronization</h1>
+                        <p className="mt-2 text-sm text-gray-600 max-w-2xl">
+                            Review synchronized cockpit voice and flight recorder data to understand how timeline events align across
+                            both sources.
                         </p>
                     </div>
-                    <div className="w-full md:w-80 space-y-2">
-                        <div className="flex items-center justify-between">
-                            <p className="block text-sm font-medium text-gray-700">Case reference</p>
-                            <button
-                                type="button"
-                                onClick={() => setWorkflowStage("caseSelection")}
-                                className="text-xs font-semibold text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1 transition hover:border-emerald-200 hover:text-emerald-600"
-                            >
-                                Change case
-                            </button>
+                    <div className="flex gap-3">
+                        <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                            <Workflow className="h-4 w-4" /> Analysis ready
                         </div>
-                        <div className="border border-gray-200 rounded-lg px-3 py-2 bg-gray-50">
-                            <p className="text-sm font-semibold text-gray-900">{selectedCase.id}</p>
-                            <p className="text-xs text-gray-500 mt-1">{selectedCase.title}</p>
+                        <div className="flex items-center gap-2 rounded-lg bg-white border border-gray-200 px-3 py-2 text-sm">
+                            <PlaneTakeoff className="h-4 w-4 text-emerald-600" /> {selectedCase.flight || "Flight details pending"}
                         </div>
                     </div>
                 </div>
 
-                <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="col-span-2 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                        <div className="flex items-center gap-3">
-                            <PlaneTakeoff className="w-10 h-10 text-emerald-600" />
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Highlighted Emotion</p>
+                        <div className="mt-2 flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-emerald-600 shadow-sm">
+                                {selectedCase.highlightedEmotion?.speaker?.charAt(0) || "C"}
+                            </div>
                             <div>
-                                <p className="text-sm font-semibold text-emerald-700 uppercase">Flight Event</p>
-                                <h2 className="text-lg font-semibold text-emerald-900">{selectedCase.title}</h2>
+                                <p className="text-sm font-semibold text-gray-900">{selectedCase.highlightedEmotion?.speaker}</p>
+                                <p className="text-sm text-gray-600">{selectedCase.highlightedEmotion?.emotion}</p>
                             </div>
                         </div>
-                        <p className="text-sm text-emerald-800 mt-3">{selectedCase.summary}</p>
                     </div>
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
                         <p className="text-xs uppercase text-gray-500 font-semibold">Aircraft</p>
                         <p className="text-sm font-medium text-gray-900 mt-1">{selectedCase.aircraft}</p>
                         <p className="text-xs text-gray-500 mt-4 uppercase font-semibold">Flight</p>
-                        <p className="text-sm text-gray-900 mt-1">{selectedCase.flight}</p>
+                        <p className="text-sm text-gray-900 mt-1">{selectedCase.flight || "Flight details pending"}</p>
                     </div>
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
                         <p className="text-xs uppercase text-gray-500 font-semibold">Date</p>
@@ -698,7 +793,7 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 bg-white text-sm">
-                                {selectedCase.timeline.map((entry, index) => (
+                                {timeline.map((entry, index) => (
                                     <tr key={`${entry.time}-${index}`} className="hover:bg-emerald-50/60 transition-colors">
                                         <td className="px-4 py-3 font-mono text-gray-700">{entry.time}</td>
                                         <td className="px-4 py-3">
@@ -719,30 +814,34 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                         </table>
                     </div>
                 </div>
+            </div>
 
-                <div className="space-y-6">
-                    <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
-                        <div className="flex items-center gap-3">
-                            <AlertTriangle className="w-10 h-10 text-amber-500" />
+            <div className="grid gap-6 lg:grid-cols-[1.2fr,0.8fr]">
+                <div className="space-y-4">
+                    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                        <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-xs uppercase font-semibold text-amber-600">Highlighted Moment</p>
-                                <h3 className="text-lg font-semibold text-gray-900">{primaryEvent.transcript}</h3>
+                                <p className="text-xs uppercase tracking-wide text-gray-500">Primary Synchronized Event</p>
+                                <h2 className="text-xl font-semibold text-gray-900">{(timeline[3] || timeline[0])?.transcript || "—"}</h2>
+                                <p className="mt-1 text-sm text-gray-600">
+                                    Occurred at <span className="font-semibold">{(timeline[3] || timeline[0])?.time || "—"}</span> from {(timeline[3] || timeline[0])?.speaker || "Unknown"}
+                                </p>
                             </div>
+                            {emotionBadge((timeline[3] || timeline[0])?.emotion || "Neutral", (timeline[3] || timeline[0])?.emotionColor || "bg-slate-100 text-slate-600")}
                         </div>
-                        <div className="mt-4 space-y-3 text-sm text-gray-700">
-                            <div className="flex items-center justify-between">
-                                <span className="font-medium text-gray-600">Timestamp</span>
-                                <span className="font-mono text-gray-900">{primaryEvent.time}</span>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                <p className="text-xs text-gray-500 uppercase">FDR Event</p>
+                                <p className="text-sm font-semibold text-gray-900">{(timeline[3] || timeline[0])?.fdrEvent || "—"}</p>
                             </div>
-                            <div className="flex items-center justify-between">
-                                <span className="font-medium text-gray-600">Emotion Response</span>
-                                {emotionBadge(primaryEvent.emotion, primaryEvent.emotionColor)}
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                <p className="text-xs text-gray-500 uppercase">Recorded Value</p>
+                                <p className="text-sm font-semibold text-gray-900">{(timeline[3] || timeline[0])?.fdrValue || "—"}</p>
                             </div>
-                            <div className="border-t border-dashed border-gray-200 pt-3 text-sm text-gray-600">
-                                <p className="font-semibold text-gray-900">FDR Insight</p>
-                                <p className="mt-1 text-gray-700">
-                                    {primaryEvent.fdrEvent} recorded <span className="font-semibold">{primaryEvent.fdrValue}</span>
-                                    , triggering crew response.
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                <p className="text-xs text-gray-500 uppercase">Timeline Window</p>
+                                <p className="text-sm font-semibold text-gray-900">
+                                    {timelineStart} – {timelineEnd}
                                 </p>
                             </div>
                         </div>
@@ -751,17 +850,16 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                     <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
                         <h3 className="text-lg font-semibold text-gray-900">Transcript &amp; Emotion</h3>
                         <p className="text-sm text-gray-600 mt-1">
-                            {selectedCase.highlightedEmotion.speaker}: {selectedCase.highlightedEmotion.emotion}
+                            {selectedCase.highlightedEmotion?.speaker}: {selectedCase.highlightedEmotion?.emotion}
                         </p>
                         <div className="mt-4 space-y-3 text-sm text-gray-700">
-                            {selectedCase.timeline.slice(0, 3).map((entry, index) => (
+                            {timeline.slice(0, 3).map((entry, index) => (
                                 <div key={`${entry.time}-insight`} className="p-3 border border-gray-200 rounded-lg">
                                     <div className="flex items-center justify-between">
                                         <span className="font-semibold text-gray-900">{entry.speaker}</span>
                                         <span className="font-mono text-gray-500">{entry.time}</span>
                                     </div>
-                                    <p className="mt-2 text-gray-700">“{entry.transcript}”</p>
-                                    <div className="mt-2">{emotionBadge(entry.emotion, entry.emotionColor)}</div>
+                                    <p className="mt-3 text-xs font-medium text-gray-500">Timestamp: {entry.time}</p>
                                 </div>
                             ))}
                         </div>
@@ -770,7 +868,7 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                     <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
                         <h3 className="text-lg font-semibold text-gray-900">Flight Parameters</h3>
                         <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                            {Object.entries(selectedCase.keyParameters).map(([label, value]) => (
+                            {Object.entries(keyParameters).map(([label, value]) => (
                                 <div key={label} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
                                     <p className="uppercase text-xs font-semibold text-gray-500">{label}</p>
                                     <p className="text-gray-900 font-medium mt-1">{value}</p>
@@ -779,16 +877,77 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="p-6 bg-white border border-gray-200 rounded-2xl shadow-sm">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    <div>
-                        <h2 className="text-xl font-semibold text-gray-900">Parameter Trends</h2>
-                        <p className="text-sm text-gray-600">
-                            Overlay of altitude, heading, and speed values to highlight deviations during the
-                            correlated timeframe.
+                <div className="space-y-4">
+                    <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                        <h2 className="text-lg font-semibold text-gray-900">Flight Recorder Trends</h2>
+                        <p className="mt-1 text-sm text-gray-600">
+                            Key parameters extracted from the selected timeline window.
                         </p>
+                        <div className="mt-4 h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={parameters} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
+                                    <defs>
+                                        <linearGradient id="altitudeGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor={parameterColors.altitude} stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor={parameterColors.altitude} stopOpacity={0} />
+                                        </linearGradient>
+                                        <linearGradient id="headingGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor={parameterColors.heading} stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor={parameterColors.heading} stopOpacity={0} />
+                                        </linearGradient>
+                                        <linearGradient id="speedGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor={parameterColors.speed} stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor={parameterColors.speed} stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                    <XAxis dataKey="time" tick={{ fill: "#6b7280", fontSize: 12 }} />
+                                    <YAxis tick={{ fill: "#6b7280", fontSize: 12 }} />
+                                    <Tooltip
+                                        contentStyle={{ borderRadius: "0.75rem", borderColor: "#d1d5db" }}
+                                        labelStyle={{ color: "#111827", fontWeight: 600 }}
+                                    />
+                                    <Legend verticalAlign="top" height={36} />
+                                    <Area
+                                        type="monotone"
+                                        dataKey="altitude"
+                                        name="Altitude (ft)"
+                                        stroke={parameterColors.altitude}
+                                        fill="url(#altitudeGradient)"
+                                        strokeWidth={2}
+                                    />
+                                    <Area
+                                        type="monotone"
+                                        dataKey="heading"
+                                        name="Heading (°)"
+                                        stroke={parameterColors.heading}
+                                        fill="url(#headingGradient)"
+                                        strokeWidth={2}
+                                    />
+                                    <Area
+                                        type="monotone"
+                                        dataKey="speed"
+                                        name="Speed (kts)"
+                                        stroke={parameterColors.speed}
+                                        fill="url(#speedGradient)"
+                                        strokeWidth={2}
+                                    />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                        <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <p className="text-sm text-gray-600">
+                                Data window aligned from <span className="font-semibold">{timelineStart}</span> to
+                                <span className="font-semibold"> {timelineEnd}</span>.
+                            </p>
+                            <button
+                                type="button"
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 text-white font-medium shadow-sm hover:bg-emerald-700"
+                            >
+                                <Download className="w-4 h-4" /> Export Report
+                            </button>
+                        </div>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-600">
                         {Object.entries(parameterColors).map(([parameter, color]) => (
@@ -805,7 +964,7 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
 
                 <div className="mt-6 h-72">
                     <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={selectedCase.parameters} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                        <AreaChart data={parameters} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                             <defs>
                                 <linearGradient id="altitudeGradient" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="5%" stopColor={parameterColors.altitude} stopOpacity={0.3} />
@@ -858,8 +1017,8 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
 
                 <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <p className="text-sm text-gray-600">
-                        Data window aligned from <span className="font-semibold">{selectedCase.timeline[0].time}</span> to
-                        <span className="font-semibold"> {selectedCase.timeline[selectedCase.timeline.length - 1].time}</span>.
+                        Data window aligned from <span className="font-semibold">{timelineStart}</span> to
+                        <span className="font-semibold"> {timelineEnd}</span>.
                     </p>
                     <button
                         type="button"

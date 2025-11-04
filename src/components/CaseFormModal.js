@@ -6,20 +6,16 @@ const DEFAULT_ANALYSES = {
   correlate: { status: 'Not Started', lastRun: null, summary: '' },
 };
 
-const modules = ['CVR', 'FDR', 'CVR & FDR', 'Correlation'];
+const modules = ['CVR', 'FDR', 'Correlation'];
 const statuses = [
   'Data Incomplete',
-  'Not Started',
   'Analysis Not Started',
   'In Progress',
   'FDR Analyzed',
   'CVR Analyzed',
   'Correlation Analyzed',
-  'Pending Review',
   'Paused',
   'Complete',
-  'Completed',
-  'Data Required',
 ];
 
 const formatFileSize = (bytes) => {

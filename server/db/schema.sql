@@ -119,4 +119,3 @@ CREATE TRIGGER set_users_updated_at_trigger
 BEFORE UPDATE ON users
 FOR EACH ROW
 EXECUTE FUNCTION set_users_updated_at();
-
