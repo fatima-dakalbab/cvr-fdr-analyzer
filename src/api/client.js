@@ -1,33 +1,63 @@
 const DEFAULT_API_PREFIX = '/api';
 
 const trimTrailingSlashes = (value = '') => value.replace(/\/+$/, '');
+const trimLeadingSlashes = (value = '') => value.replace(/^\/+/, '');
 
-const resolveApiBaseUrl = () => {
-  const rawBase = trimTrailingSlashes(process.env.REACT_APP_API_BASE_URL || '');
-
-  if (!rawBase) {
-    return DEFAULT_API_PREFIX;
+const normalizePrefix = (value) => {
+  if (!value) {
+    return '';
   }
 
-  const extractPathSegments = (value) => {
-    try {
-      const { pathname } = new URL(value);
-      return pathname.split('/').filter(Boolean);
-    } catch (_error) {
-      return value.split('/').filter(Boolean);
-    }
-  };
+  const trimmed = value.trim();
 
-  const pathSegments = extractPathSegments(rawBase).map((segment) => segment.toLowerCase());
-
-  if (pathSegments.includes('api')) {
-    return rawBase;
+  if (!trimmed || trimmed === '/') {
+    return '';
   }
 
-  return `${rawBase}${DEFAULT_API_PREFIX}`;
+  const withoutSlashes = trimLeadingSlashes(trimTrailingSlashes(trimmed));
+
+  return `/${withoutSlashes}`;
 };
 
-const API_BASE_URL = resolveApiBaseUrl();
+const resolveApiConfiguration = () => {
+  const rawBase = (process.env.REACT_APP_API_BASE_URL || '').trim();
+  const rawPrefix = process.env.REACT_APP_API_PREFIX;
+
+  if (!rawBase) {
+    return {
+      base: '',
+      prefix: normalizePrefix(rawPrefix) || DEFAULT_API_PREFIX,
+    };
+  }
+
+  try {
+    const url = new URL(rawBase);
+    const base = `${url.protocol}//${url.host}`;
+    const inferredPrefix = normalizePrefix(url.pathname);
+
+    return {
+      base,
+      prefix: normalizePrefix(rawPrefix) || inferredPrefix || DEFAULT_API_PREFIX,
+    };
+  } catch (_error) {
+    return {
+      base: '',
+      prefix: normalizePrefix(rawPrefix) || normalizePrefix(rawBase),
+    };
+  }
+};
+
+const { base: API_BASE_ORIGIN, prefix: API_PREFIX } = resolveApiConfiguration();
+
+const buildRequestUrl = (path) => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+
+  if (API_BASE_ORIGIN) {
+    return `${API_BASE_ORIGIN}${API_PREFIX}${normalizedPath}`;
+  }
+
+  return `${API_PREFIX}${normalizedPath}`;
+};
 
 const getStoredToken = () => {
   if (typeof window === 'undefined') {
@@ -50,8 +80,7 @@ const request = async (path, options = {}) => {
     }
   }
 
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const response = await fetch(`${API_BASE_URL}${normalizedPath}`, {
+  const response = await fetch(buildRequestUrl(path), {
     ...options,
     headers,
   });
