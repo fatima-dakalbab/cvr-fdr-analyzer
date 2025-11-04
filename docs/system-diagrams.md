@@ -26,7 +26,7 @@ erDiagram
         TEXT module "Module label (e.g., CVR & FDR)"
         TEXT status
         TEXT owner
-        TEXT organization
+                TEXT organization
         TEXT examiner
         TEXT aircraft_type
         TEXT location
@@ -51,23 +51,32 @@ erDiagram
 ```mermaid
 flowchart LR
     subgraph Frontend [React Frontend]
-        UI[Pages & Components\n(src/pages, src/components)]
-        Hooks[Custom Hooks\n(src/hooks)]
-        APIClient[API Client\n(src/api)]
-        UtilsFE[Utilities\n(src/utils)]
+        UI["Pages & Components<br/>src/pages, src/components"]
+        Hooks["Custom Hooks<br/>src/hooks"]
+        APIClient["API Client<br/>src/api"]
+        UtilsFE["Utilities<br/>src/utils"]
     end
 
     subgraph Backend [Express API Server]
-        Routes[routes/*\nRequest routers]
-        Middleware[middleware/*\nAuth & error handling]
-        Services[services/*\nBusiness logic]
-        UtilsBE[utils/*\nToken, validation, mapping]
-        DBLayer[db/pool.js\nDatabase access]
+        Routes["routes/*<br/>Request routers"]
+        Middleware["middleware/*<br/>Auth & error handling"]
+        Services["services/*<br/>Business logic"]
+        UtilsBE["utils/*<br/>Token, validation, mapping"]
+        DBLayer["db/pool.js<br/>Database access"]
+        StorageSvc["storage/*<br/>Future MinIO integration"]
     end
 
     subgraph Database [PostgreSQL]
-        CasesTable[(cases table)]
-        UsersTable[(users table)]
+        CasesTable[(Cases Table)]
+        UsersTable[(Users Table)]
+    end
+
+    subgraph ObjectStorage ["Object Storage<br/>(Future MinIO S3)"]
+        MinIO["MinIO buckets<br/>for CVR/FDR data"]
+    end
+
+    subgraph ObjectStorage ["Object Storage\\n(Future MinIO S3)"]
+        MinIO["MinIO buckets\\nfor CVR/FDR data"]
     end
 
     UI --> Hooks
@@ -77,6 +86,8 @@ flowchart LR
     Middleware --> Services
     Services --> UtilsBE
     Services --> DBLayer
+    Services -.-> StorageSvc
+    StorageSvc --> MinIO
     DBLayer -->|SQL queries| CasesTable
     DBLayer -->|SQL queries| UsersTable
 
@@ -86,4 +97,5 @@ flowchart LR
     APIClient <-->|Auth tokens| Middleware
 ```
 
-The first diagram reflects the structure defined in [`server/db/schema.sql`](../server/db/schema.sql). The second diagram summarizes how React UI layers invoke the API client, which communicates with Express routes; those routes funnel requests through middleware into service modules that interact with shared utilities and the PostgreSQL tables via the database layer.
+The first diagram reflects the structure defined in [`server/db/schema.sql`](../server/db/schema.sql). The second diagram summarizes how React UI layers invoke the API client, which communicates with Express routes; those routes funnel requests through middleware into service modules that interact with shared utilities and the PostgreSQL tables via the database layer. The storage service node highlights the planned integration with a MinIO-backed S3 object store to hold CVR/FDR artifacts alongside relational case data.
+
