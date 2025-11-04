@@ -38,9 +38,9 @@ const notifications = [
 const navigationLinks = [
   { to: '/', icon: Home, label: 'Home', end: true },
   { to: '/cases', icon: FileText, label: 'Cases' },
-  { to: '/cases/fdr', icon: PlaneTakeoff, label: 'FDR Module', disabled: true },
-  { to: '/cases/cvr', icon: AudioLines, label: 'CVR Module', disabled: true },
-  { to: '/cases/correlate', icon: Workflow, label: 'Correlate FDR & CVR', disabled: true },
+  { to: '/cases/fdr', icon: PlaneTakeoff, label: 'FDR Module' },
+  { to: '/cases/cvr', icon: AudioLines, label: 'CVR Module' },
+  { to: '/cases/correlate', icon: Workflow, label: 'Correlate FDR & CVR' },
   { to: '/reports', icon: FileBarChart, label: 'Generate Reports' },
 ];
 
@@ -161,20 +161,15 @@ const AuthenticatedLayout = () => {
       <div className="flex">
         <aside className="w-64 bg-white border-r min-h-screen">
           <nav className="p-4 space-y-2">
-            {navigationLinks.map(({ to, icon: Icon, label, end, disabled }) => (
+            {navigationLinks.map(({ to, icon: Icon, label, end }) => (
               <NavLink
                 key={to}
-                to={disabled ? '#' : to}
+                to={to}
                 end={end}
-                onClick={(event) => {
-                  if (disabled) {
-                    event.preventDefault();
-                  }
-                }}
                 className={({ isActive }) =>
                   `flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
                     isActive ? 'text-white shadow' : 'text-gray-700 hover:bg-gray-50'
-                  } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`
+                  }`
                 }
                 style={({ isActive }) => (isActive ? { backgroundColor: '#019348' } : undefined)}
               >

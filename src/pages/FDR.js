@@ -14,6 +14,7 @@ import {
 import { fetchCaseByNumber } from "../api/cases";
 import useRecentCases from "../hooks/useRecentCases";
 import { buildCasePreview } from "../utils/caseDisplay";
+import { evaluateModuleReadiness } from "../utils/analysisAvailability";
 
 const defaultCaseOptions = [
     {
@@ -374,6 +375,18 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     return;
                 }
 
+                const evaluation = evaluateModuleReadiness(data, "fdr");
+                if (!evaluation.ready) {
+                    navigate("/cases/fdr", {
+                        replace: true,
+                        state: {
+                            analysisError: evaluation.message,
+                            attemptedCase: data?.caseNumber || caseNumber,
+                        },
+                    });
+                    return;
+                }
+
                 const preview = buildCasePreview(data);
                 setSelectedCase(preview);
                 setWorkflowStage("analysis");
@@ -391,7 +404,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         return () => {
             isMounted = false;
         };
-    }, [caseNumber, selectedCase]);
+    }, [caseNumber, navigate, selectedCase]);
 
     const handleNavigateToCases = () => {
         navigate("/cases");

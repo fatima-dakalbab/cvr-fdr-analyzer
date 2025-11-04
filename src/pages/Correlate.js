@@ -4,6 +4,7 @@ import { PlaneTakeoff, AlertTriangle, Workflow, Download, ArrowRight, Loader2, C
 import { fetchCaseByNumber } from "../api/cases";
 import useRecentCases from "../hooks/useRecentCases";
 import { buildCasePreview } from "../utils/caseDisplay";
+import { evaluateModuleReadiness } from "../utils/analysisAvailability";
 import {
     Area,
     AreaChart,
@@ -373,6 +374,19 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                     return;
                 }
 
+                const evaluation = evaluateModuleReadiness(data, "correlate");
+                if (!evaluation.ready) {
+                    navigate("/cases/correlate", {
+                        replace: true,
+                        state: {
+                            analysisError: evaluation.message,
+                            attemptedCase: data?.caseNumber || caseNumber,
+                        },
+                    });
+                    return;
+                }
+
+
                 const preview = buildCasePreview(data);
                 if (!preview) {
                     throw new Error("Unable to open the selected case");
@@ -412,7 +426,7 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
         return () => {
             isMounted = false;
         };
-    }, [caseNumber, selectedCase, workflowStage, caseSelectionOptions]);
+    }, [caseNumber, caseSelectionOptions, navigate, selectedCase, workflowStage]);
 
     const mergeWithTemplate = (option) => {
         if (!option) {

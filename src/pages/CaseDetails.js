@@ -15,6 +15,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { fetchCaseByNumber } from '../api/cases';
+import { evaluateModuleReadiness } from '../utils/analysisAvailability';
 
 const statusColors = {
   Complete: 'text-emerald-700 bg-emerald-100',
@@ -45,6 +46,7 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
   const [caseData, setCaseData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [analysisError, setAnalysisError] = useState('');
   const navigate = useNavigate();
   const { caseNumber: routeCaseNumber } = useParams();
   const caseNumber = propCaseNumber || routeCaseNumber;
@@ -77,6 +79,26 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
 
     loadCase();
   }, [caseNumber]);
+
+  useEffect(() => {
+    setAnalysisError('');
+  }, [caseNumber]);
+
+  const handleOpenModule = (moduleKey) => {
+    if (!caseData) {
+      setAnalysisError('Case details are still loading.');
+      return;
+    }
+
+    const evaluation = evaluateModuleReadiness(caseData, moduleKey);
+    if (!evaluation.ready) {
+      setAnalysisError(evaluation.message);
+      return;
+    }
+
+    setAnalysisError('');
+    navigate(`/cases/${caseNumber}/${moduleKey}`);
+  };
 
   const analysisCards = useMemo(() => {
     const analyses = caseData?.analyses || {};
@@ -258,9 +280,16 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
             </div>
           </div>
         </div>
+        
+        {analysisError && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {analysisError}
+          </div>
+        )}
+
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {analysisCards.map(({ key, title, status, lastRun, description, path }) => {
+          {analysisCards.map(({ key, title, status, lastRun, description }) => {
             const Icon = analysisIcon[key];
             return (
               <div key={key} className="border border-gray-200 rounded-xl p-4 bg-gray-50/60 flex flex-col gap-3">
@@ -277,7 +306,7 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
                 <p className="text-xs text-gray-500">{lastRun ? `Last updated ${lastRun}` : 'No runs yet'}</p>
                 <button
                   type="button"
-                  onClick={() => navigate(path)}
+                  onClick={() => handleOpenModule(key)}
                   className="mt-auto text-sm font-semibold text-emerald-600 hover:text-emerald-700"
                 >
                   Open module →

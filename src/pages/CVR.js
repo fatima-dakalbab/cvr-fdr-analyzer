@@ -24,6 +24,7 @@ import {
 import { fetchCaseByNumber } from "../api/cases";
 import useRecentCases from "../hooks/useRecentCases";
 import { buildCasePreview } from "../utils/caseDisplay";
+import { evaluateModuleReadiness } from "../utils/analysisAvailability";
 
 const defaultCaseOptions = [
     {
@@ -410,6 +411,18 @@ export default function CVR({ caseNumber: propCaseNumber }) {
                     return;
                 }
 
+                const evaluation = evaluateModuleReadiness(data, "cvr");
+                if (!evaluation.ready) {
+                    navigate("/cases/cvr", {
+                        replace: true,
+                        state: {
+                            analysisError: evaluation.message,
+                            attemptedCase: data?.caseNumber || caseNumber,
+                        },
+                    });
+                    return;
+                }
+
                 const preview = buildCasePreview(data);
                 setSelectedCase(preview);
                 setActiveTab("analysis");
@@ -430,7 +443,7 @@ export default function CVR({ caseNumber: propCaseNumber }) {
         return () => {
             isMounted = false;
         };
-    }, [caseNumber, selectedCase, workflowStage]);
+    }, [caseNumber, navigate, selectedCase, workflowStage]);
 
     useEffect(() => {
         if (workflowStage === "caseSelection") {

@@ -16,6 +16,7 @@ import {
   updateCase,
   deleteCase,
 } from '../api/cases';
+import { evaluateModuleReadiness } from '../utils/analysisAvailability';
 
 const statusStyles = {
   Complete: 'bg-emerald-100 text-emerald-700',
@@ -49,6 +50,7 @@ const Cases = () => {
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [createError, setCreateError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -82,6 +84,12 @@ const Cases = () => {
     () => cases.find((caseItem) => caseItem.caseNumber === selectedCaseNumber) || null,
     [cases, selectedCaseNumber],
   );
+
+  useEffect(() => {
+    if (selectedCaseNumber) {
+      setAnalysisError('');
+    }
+  }, [selectedCaseNumber]);
 
   const filteredCases = useMemo(() => {
     if (!searchTerm) {
@@ -193,12 +201,20 @@ const Cases = () => {
     }
   };
 
-  const handleNavigate = (path) => {
-    if (!selectedCaseNumber) {
+const handleModuleNavigate = (moduleKey) => {
+    if (!selectedCase) {
+      setAnalysisError('Select a case before opening an analysis module.');
       return;
     }
 
-    navigate(path);
+    const evaluation = evaluateModuleReadiness(selectedCase, moduleKey);
+    if (!evaluation.ready) {
+      setAnalysisError(evaluation.message);
+      return;
+    }
+
+    setAnalysisError('');
+    navigate(`/cases/${selectedCase.caseNumber}/${moduleKey}`);
   };
 
   return (
@@ -247,6 +263,12 @@ const Cases = () => {
         {feedback && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             {feedback}
+          </div>
+        )}
+
+        {analysisError && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {analysisError}
           </div>
         )}
 
@@ -370,21 +392,21 @@ const Cases = () => {
               </button>
               <button
                 type="button"
-                onClick={() => handleNavigate(`/cases/${selectedCase.caseNumber}/fdr`)}
+                onClick={() => handleModuleNavigate('fdr')}
                 className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
               >
                 FDR Analysis
               </button>
               <button
                 type="button"
-                onClick={() => handleNavigate(`/cases/${selectedCase.caseNumber}/cvr`)}
+                onClick={() => handleModuleNavigate('cvr')}
                 className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
               >
                 CVR Analysis
               </button>
               <button
                 type="button"
-                onClick={() => handleNavigate(`/cases/${selectedCase.caseNumber}/correlate`)}
+                onClick={() => handleModuleNavigate('correlate')}
                 className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
               >
                 Correlate
