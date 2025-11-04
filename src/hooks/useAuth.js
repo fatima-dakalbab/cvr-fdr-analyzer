@@ -101,6 +101,7 @@ export const AuthProvider = ({ children }) => {
     () => ({
       user,
       token,
+      isAuthenticated: Boolean(user),
       isLoading: loading,
       error,
       login,

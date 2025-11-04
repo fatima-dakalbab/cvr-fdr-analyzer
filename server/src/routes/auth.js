@@ -44,7 +44,7 @@ router.post('/signup', async (req, res, next) => {
 
     const token = createToken(user);
 
-    res.status(201).json({ token, user });
+    res.status(201).json({ token, user: sanitizeUser(user) });
   } catch (error) {
     next(error);
   }
@@ -82,3 +82,4 @@ router.post('/login', async (req, res, next) => {
 });
 
 module.exports = router;
+
