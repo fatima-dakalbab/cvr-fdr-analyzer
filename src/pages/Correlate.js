@@ -291,8 +291,9 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
     const { caseNumber: routeCaseNumber } = useParams();
     const caseNumber = propCaseNumber || routeCaseNumber;
     const navigate = useNavigate();
+    const isLinkedRoute = Boolean(caseNumber);
     const [workflowStage, setWorkflowStage] = useState(
-        caseNumber ? "loading" : "caseSelection"
+        isLinkedRoute ? "loading" : "caseSelection"
     );
     const [selectedCaseId, setSelectedCaseId] = useState(null);
     const [selectedCase, setSelectedCase] = useState(null);
@@ -322,6 +323,7 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
     }, [recentCases]);
 
     const [linkError, setLinkError] = useState("");
+    const [missingDataTypes, setMissingDataTypes] = useState([]);
     const lastLinkedCaseRef = useRef(null);
 
     useEffect(() => {
@@ -336,6 +338,7 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
         if (!caseNumber) {
             lastLinkedCaseRef.current = null;
             setLinkError("");
+            setMissingDataTypes([]);
             setSelectedCaseId(null);
             setSelectedCase(null);
             setWorkflowStage("caseSelection");
@@ -348,6 +351,7 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
 
         setWorkflowStage("loading");
         setLinkError("");
+        setMissingDataTypes([]);
         if (!caseNumber) {
             lastLinkedCaseRef.current = null;
             return;
@@ -359,7 +363,7 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
 
         if (selectedCase?.id === caseNumber) {
             lastLinkedCaseRef.current = caseNumber;
-            if (workflowStage === "caseSelection") {
+            if (!isLinkedRoute && workflowStage === "caseSelection") {
                 setWorkflowStage("loading");
             }
             return;
@@ -376,13 +380,11 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
 
                 const evaluation = evaluateModuleReadiness(data, "correlate");
                 if (!evaluation.ready) {
-                    navigate("/cases/correlate", {
-                        replace: true,
-                        state: {
-                            analysisError: evaluation.message,
-                            attemptedCase: data?.caseNumber || caseNumber,
-                        },
-                    });
+                    setLinkError(evaluation.message);
+                    setMissingDataTypes(evaluation.missingTypes || []);
+                    setSelectedCase(null);
+                    setSelectedCaseId(null);
+                    setWorkflowStage(isLinkedRoute ? "loading" : "caseSelection");
                     return;
                 }
 
@@ -411,6 +413,8 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                 setSelectedCase(merged);
                 setWorkflowStage("loading");
                 lastLinkedCaseRef.current = caseNumber;
+                setLinkError("");
+                setMissingDataTypes([]);
             })
             .catch((err) => {
                 if (!isMounted) {
@@ -418,15 +422,16 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
                 }
 
                 setLinkError(err?.message || "Unable to open the selected case");
+                setMissingDataTypes([]);
                 setSelectedCase(null);
                 setSelectedCaseId(null);
-                setWorkflowStage("caseSelection");
+                setWorkflowStage(isLinkedRoute ? "loading" : "caseSelection");
             });
 
         return () => {
             isMounted = false;
         };
-    }, [caseNumber, caseSelectionOptions, navigate, selectedCase, workflowStage]);
+    }, [caseNumber, caseSelectionOptions, navigate, selectedCase, workflowStage, isLinkedRoute]);
 
     const mergeWithTemplate = (option) => {
         if (!option) {
@@ -512,14 +517,52 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
         navigate("/cases");
     };
 
+    const handleUploadMissingData = () => {
+        if (!caseNumber) {
+            return;
+        }
+
+        const normalizedMissing = missingDataTypes.map((type) => String(type || "").toLowerCase());
+        const hasFdr = normalizedMissing.includes("fdr");
+        const hasCvr = normalizedMissing.includes("cvr");
+
+        let focusUpload = "";
+        if (hasFdr && hasCvr) {
+            focusUpload = "both";
+        } else if (hasFdr) {
+            focusUpload = "fdr";
+        } else if (hasCvr) {
+            focusUpload = "cvr";
+        }
+
+        navigate("/cases", {
+            state: {
+                editCaseNumber: caseNumber,
+                focusUpload,
+                attemptedCase: caseNumber,
+            },
+        });
+    };
+
+    const handleChangeCase = () => {
+        if (isLinkedRoute) {
+            navigate("/cases");
+            return;
+        }
+        setWorkflowStage("caseSelection");
+        setLinkError("");
+        setMissingDataTypes([]);
+    };
+
     const handleCaseSelect = (option) => {
         setSelectedCaseId(option.id);
         setSelectedCase(mergeWithTemplate(option));
         setLinkError("");
+        setMissingDataTypes([]);
     };
 
 
-    if (workflowStage === "caseSelection") {
+    if (!isLinkedRoute && workflowStage === "caseSelection") {
         const selectedOption = caseSelectionOptions.find(
             (item) => item.id === selectedCaseId
         );
@@ -653,7 +696,46 @@ const Correlate = ({ caseNumber: propCaseNumber }) => {
         );
     }
 
+    const canOfferUpload = isLinkedRoute && missingDataTypes.length > 0;
+
     if (workflowStage !== "caseSelection" && !selectedCase) {
+        if (linkError) {
+            return (
+                <div className="max-w-3xl mx-auto py-24 text-center space-y-6">
+                    <div className="space-y-2">
+                        <h1 className="text-3xl font-semibold text-gray-900">Unable to open case</h1>
+                        <p className="text-sm text-gray-600">{linkError}</p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:justify-center gap-3">
+                        <button
+                            type="button"
+                            onClick={handleNavigateToCases}
+                            className="inline-flex items-center justify-center rounded-lg border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+                        >
+                            Back to cases
+                        </button>
+                        {canOfferUpload ? (
+                            <button
+                                type="button"
+                                onClick={handleUploadMissingData}
+                                className="inline-flex items-center justify-center rounded-lg border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+                            >
+                                Upload required data
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={handleChangeCase}
+                                className="inline-flex items-center justify-center rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                            >
+                                Choose another case
+                            </button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
         return (
             <div className="max-w-4xl mx-auto flex flex-col items-center justify-center gap-4 py-24 text-center">
                 <div className="h-12 w-12 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />

@@ -6,6 +6,7 @@ const {
   GetObjectCommand,
   HeadBucketCommand,
   CreateBucketCommand,
+  HeadObjectCommand,
 } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const slugify = require('../utils/slugify');
@@ -335,7 +336,35 @@ const get = new GetObjectCommand({
   };
 }
 
+async function objectExists({ bucket, objectKey }) {
+  if (!objectKey) {
+    return false;
+  }
+
+  const config = getConfig();
+  const bucketName = (bucket || '').trim() || config.bucket;
+
+  try {
+    await s3.send(
+      new HeadObjectCommand({
+        Bucket: bucketName,
+        Key: objectKey,
+      }),
+    );
+    return true;
+  } catch (error) {
+    const status = error?.$metadata?.httpStatusCode;
+    const code = (error?.Code || error?.name || '').toLowerCase();
+    if (status === 404 || status === 403 || code === 'notfound' || code === 'nosuchkey') {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
 module.exports = {
   initializeStorage,
   createPresignedUpload,
+  objectExists,
 };

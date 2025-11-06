@@ -100,6 +100,37 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
     navigate(`/cases/${caseNumber}/${moduleKey}`);
   };
 
+  const handleUploadData = (moduleKey, missingTypes) => {
+    if (!caseNumber) {
+      return;
+    }
+
+    setAnalysisError('');
+
+    const normalizedMissing = Array.isArray(missingTypes)
+      ? missingTypes.map((type) => String(type || '').toLowerCase())
+      : [];
+
+    let focusUpload = '';
+    const hasFdr = normalizedMissing.includes('fdr');
+    const hasCvr = normalizedMissing.includes('cvr');
+    if (hasFdr && hasCvr) {
+      focusUpload = 'both';
+    } else if (hasFdr) {
+      focusUpload = 'fdr';
+    } else if (hasCvr) {
+      focusUpload = 'cvr';
+    }
+
+    navigate('/cases', {
+      state: {
+        editCaseNumber: caseNumber,
+        focusUpload,
+        attemptedCase: caseNumber,
+      },
+    });
+  };
+
   const analysisCards = useMemo(() => {
     const analyses = caseData?.analyses || {};
 
@@ -111,6 +142,7 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
         lastRun: analyses.fdr?.lastRun,
         description: analyses.fdr?.summary || 'No summary available yet.',
         path: `/cases/${caseNumber}/fdr`,
+        evaluation: evaluateModuleReadiness(caseData, 'fdr'),
       },
       {
         key: 'cvr',
@@ -119,6 +151,7 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
         lastRun: analyses.cvr?.lastRun,
         description: analyses.cvr?.summary || 'No summary available yet.',
         path: `/cases/${caseNumber}/cvr`,
+        evaluation: evaluateModuleReadiness(caseData, 'cvr'),
       },
       {
         key: 'correlate',
@@ -127,9 +160,10 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
         lastRun: analyses.correlate?.lastRun,
         description: analyses.correlate?.summary || 'No summary available yet.',
         path: `/cases/${caseNumber}/correlate`,
+        evaluation: evaluateModuleReadiness(caseData, 'correlate'),
       },
     ];
-  }, [caseData?.analyses, caseNumber]);
+  }, [caseData, caseNumber]);
 
   if (loading) {
     return (
@@ -289,8 +323,25 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
 
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {analysisCards.map(({ key, title, status, lastRun, description }) => {
+          {analysisCards.map(({ key, title, status, lastRun, description, evaluation }) => {
             const Icon = analysisIcon[key];
+            const ready = evaluation?.ready;
+            const missingTypes = evaluation?.missingTypes || [];
+            const uploadLabel = (() => {
+              if (!missingTypes.length) {
+                return 'Upload recorder data';
+              }
+
+              if (missingTypes.length === 2) {
+                return 'Upload FDR & CVR data';
+              }
+
+              if (missingTypes.length === 1) {
+                return missingTypes[0] === 'FDR' ? 'Upload FDR data' : 'Upload CVR data';
+              }
+
+              return 'Upload recorder data';
+            })();
             return (
               <div key={key} className="border border-gray-200 rounded-xl p-4 bg-gray-50/60 flex flex-col gap-3">
                 <div className="flex items-center gap-3">
@@ -304,13 +355,28 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
                 </div>
                 <p className="text-sm text-gray-600 min-h-[60px]">{description}</p>
                 <p className="text-xs text-gray-500">{lastRun ? `Last updated ${lastRun}` : 'No runs yet'}</p>
-                <button
-                  type="button"
-                  onClick={() => handleOpenModule(key)}
-                  className="mt-auto text-sm font-semibold text-emerald-600 hover:text-emerald-700"
-                >
-                  Open module →
-                </button>
+                {ready ? (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenModule(key)}
+                    className="mt-auto text-sm font-semibold text-emerald-600 hover:text-emerald-700"
+                  >
+                    Open module →
+                  </button>
+                ) : (
+                  <div className="mt-auto space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => handleUploadData(key, missingTypes)}
+                      className="text-sm font-semibold text-emerald-600 hover:text-emerald-700"
+                    >
+                      {uploadLabel} →
+                    </button>
+                    {evaluation?.message && (
+                      <p className="text-xs text-emerald-700/90">{evaluation.message}</p>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

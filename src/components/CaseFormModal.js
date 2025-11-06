@@ -94,6 +94,7 @@ const CaseFormModal = ({
   onSubmit,
   isSubmitting = false,
   errorMessage = '',
+  initialUploadFocus = '',
 }) => {
   const [formValues, setFormValues] = useState(() => createDefaultValues());
   const [localError, setLocalError] = useState('');
@@ -165,6 +166,9 @@ const CaseFormModal = ({
 
   const fdrUpload = formValues.uploads?.fdr || {};
   const cvrUpload = formValues.uploads?.cvr || {};
+  const normalizedFocus = (initialUploadFocus || '').toLowerCase();
+  const highlightFdr = normalizedFocus === 'fdr' || normalizedFocus === 'both';
+  const highlightCvr = normalizedFocus === 'cvr' || normalizedFocus === 'both';
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -731,8 +735,23 @@ const CaseFormModal = ({
             <p className="text-sm text-gray-500 mb-4">
               Upload the latest FDR and CVR datasets and add any supporting notes.
             </p>
+            {(highlightFdr || highlightCvr) && (
+              <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                {highlightFdr && highlightCvr
+                  ? 'Upload both the FDR and CVR datasets to enable analysis for this case.'
+                  : highlightFdr
+                    ? 'Upload the FDR dataset to unlock FDR-related analysis.'
+                    : 'Upload the CVR dataset to unlock CVR-related analysis.'}
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="border border-gray-200 rounded-xl p-4">
+              <div
+                className={`border rounded-xl p-4 ${
+                  highlightFdr
+                    ? 'border-emerald-300 ring-2 ring-emerald-100 bg-emerald-50/40'
+                    : 'border-gray-200 bg-white'
+                }`}
+              >
                 <div className="space-y-4">
                   <div>
                     <p className="text-sm font-semibold text-gray-800">FDR Data</p>
@@ -775,7 +794,13 @@ const CaseFormModal = ({
                 </div>
               </div>
 
-              <div className="border border-gray-200 rounded-xl p-4">
+              <div
+                className={`border rounded-xl p-4 ${
+                  highlightCvr
+                    ? 'border-emerald-300 ring-2 ring-emerald-100 bg-emerald-50/40'
+                    : 'border-gray-200 bg-white'
+                }`}
+              >
                 <div className="space-y-4">
                   <div>
                     <p className="text-sm font-semibold text-gray-800">CVR Data</p>
