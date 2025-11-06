@@ -12,6 +12,7 @@ import CaseFormModal from '../components/CaseFormModal';
 import NewCaseWizard from '../components/NewCaseWizard';
 import {
   fetchCases,
+  fetchCaseByNumber,
   createCase,
   updateCase,
   deleteCase,
@@ -51,6 +52,9 @@ const Cases = () => {
   const [createError, setCreateError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
+  const [moduleCheck, setModuleCheck] = useState('');
+  const [uploadFocus, setUploadFocus] = useState('');
+  const [pendingEditRequest, setPendingEditRequest] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -72,13 +76,42 @@ const Cases = () => {
   }, []);
 
   useEffect(() => {
-    if (location.state?.openNewCase) {
+    const state = location.state || {};
+    if (state.openNewCase) {
       setIsWizardOpen(true);
       setCreateError('');
       setIsCreating(false);
-      navigate(location.pathname, { replace: true, state: {} });
+    }
+
+    if (state.editCaseNumber) {
+      setPendingEditRequest({
+        caseNumber: state.editCaseNumber,
+        focusUpload: state.focusUpload || '',
+      });
+    }
+
+    if (state.openNewCase || state.editCaseNumber || state.attemptedCase) {
+      const nextState = state.attemptedCase ? { attemptedCase: state.attemptedCase } : {};
+      navigate(location.pathname, { replace: true, state: nextState });
     }
   }, [location, navigate]);
+
+  useEffect(() => {
+    if (!pendingEditRequest || cases.length === 0) {
+      return;
+    }
+
+    const match = cases.find((caseItem) => caseItem.caseNumber === pendingEditRequest.caseNumber);
+    if (!match) {
+      setAnalysisError('The requested case could not be found. It may have been removed.');
+      setPendingEditRequest(null);
+      return;
+    }
+
+    setSelectedCaseNumber(match.caseNumber);
+    openEditForm(match, pendingEditRequest.focusUpload);
+    setPendingEditRequest(null);
+  }, [cases, pendingEditRequest]);
 
   const selectedCase = useMemo(
     () => cases.find((caseItem) => caseItem.caseNumber === selectedCaseNumber) || null,
@@ -115,13 +148,15 @@ const Cases = () => {
     setCreateError('');
     setFeedback('');
     setIsCreating(false);
+    setUploadFocus('');
   };
 
-  const openEditForm = (caseItem) => {
+  const openEditForm = (caseItem, focus = '') => {
     setEditingCase(caseItem);
     setIsFormOpen(true);
     setFormError('');
     setFeedback('');
+    setUploadFocus(focus || '');
   };
 
   const closeForm = () => {
@@ -129,6 +164,7 @@ const Cases = () => {
     setEditingCase(null);
     setFormError('');
     setIsSubmitting(false);
+    setUploadFocus('');
   };
 
   const handleCreateCase = async (formValues) => {
@@ -177,6 +213,7 @@ const Cases = () => {
       setSelectedCaseNumber(updated.caseNumber);
       setFeedback('Case updated successfully.');
       closeForm();
+      setUploadFocus('');
     } catch (err) {
       setFormError(err.message || 'Unable to update case');
     } finally {
@@ -201,20 +238,50 @@ const Cases = () => {
     }
   };
 
-const handleModuleNavigate = (moduleKey) => {
+   const handleModuleNavigate = async (moduleKey) => {
     if (!selectedCase) {
       setAnalysisError('Select a case before opening an analysis module.');
       return;
     }
 
-    const evaluation = evaluateModuleReadiness(selectedCase, moduleKey);
-    if (!evaluation.ready) {
-      setAnalysisError(evaluation.message);
+    if (moduleCheck) {
       return;
     }
 
     setAnalysisError('');
-    navigate(`/cases/${selectedCase.caseNumber}/${moduleKey}`);
+    setModuleCheck(moduleKey);
+
+    try {
+      const latest = await fetchCaseByNumber(selectedCase.caseNumber);
+
+      if (!latest) {
+        setAnalysisError('The selected case could not be found. Please refresh and try again.');
+        return;
+      }
+
+      setCases((prev) => {
+        const exists = prev.some((item) => item.caseNumber === latest.caseNumber);
+        if (!exists) {
+          return prev;
+        }
+
+        return prev.map((item) => (item.caseNumber === latest.caseNumber ? latest : item));
+      });
+
+      setSelectedCaseNumber(latest.caseNumber);
+
+      const evaluation = evaluateModuleReadiness(latest, moduleKey);
+      if (!evaluation.ready) {
+        setAnalysisError(evaluation.message);
+        return;
+      }
+
+      navigate(`/cases/${latest.caseNumber}/${moduleKey}`);
+    } catch (error) {
+      setAnalysisError(error.message || 'Unable to verify case data before opening the module.');
+    } finally {
+      setModuleCheck('');
+    }
   };
 
   return (
@@ -302,9 +369,8 @@ const handleModuleNavigate = (moduleKey) => {
                   return (
                     <tr
                       key={caseItem.caseNumber}
-                      className={`border-b transition-colors ${
-                        isSelected ? 'bg-emerald-50/60 border-emerald-200' : 'hover:bg-gray-50'
-                      }`}
+                      className={`border-b transition-colors ${isSelected ? 'bg-emerald-50/60 border-emerald-200' : 'hover:bg-gray-50'
+                        }`}
                     >
                       <td className="px-4 py-4">
                         <label className="flex items-center justify-center">
@@ -324,9 +390,8 @@ const handleModuleNavigate = (moduleKey) => {
                       <td className="px-4 py-4 text-sm text-gray-600">{caseItem.lastUpdated || '—'}</td>
                       <td className="px-4 py-4 text-sm">
                         <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            statusStyles[caseItem.status] || 'bg-gray-100 text-gray-600'
-                          }`}
+                          className={`px-3 py-1 rounded-full text-xs font-semibold ${statusStyles[caseItem.status] || 'bg-gray-100 text-gray-600'
+                            }`}
                         >
                           {caseItem.status}
                         </span>
@@ -393,23 +458,26 @@ const handleModuleNavigate = (moduleKey) => {
               <button
                 type="button"
                 onClick={() => handleModuleNavigate('fdr')}
-                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
+                disabled={Boolean(moduleCheck)}
+                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                FDR Analysis
+                {moduleCheck === 'fdr' ? 'Checking…' : 'FDR Analysis'}
               </button>
               <button
                 type="button"
                 onClick={() => handleModuleNavigate('cvr')}
-                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
+                disabled={Boolean(moduleCheck)}
+                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                CVR Analysis
+                {moduleCheck === 'cvr' ? 'Checking…' : 'CVR Analysis'}
               </button>
               <button
                 type="button"
                 onClick={() => handleModuleNavigate('correlate')}
-                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10"
+                disabled={Boolean(moduleCheck)}
+                className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500 text-emerald-600 font-semibold hover:bg-emerald-500/10 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Correlate
+                {moduleCheck === 'correlate' ? 'Checking…' : 'Correlate'}
               </button>
             </div>
           </div>
@@ -433,6 +501,7 @@ const handleModuleNavigate = (moduleKey) => {
         onSubmit={handleUpdateCase}
         isSubmitting={isSubmitting}
         errorMessage={formError}
+        initialUploadFocus={uploadFocus}
       />
       <NewCaseWizard
         isOpen={isWizardOpen}

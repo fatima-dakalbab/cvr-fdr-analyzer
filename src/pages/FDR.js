@@ -336,8 +336,9 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     );
     const [selectedSeverity, setSelectedSeverity] = useState(severityLevels[0]);
     const [isRunningDetection, setIsRunningDetection] = useState(false);
+    const isLinkedRoute = Boolean(caseNumber);
     const [workflowStage, setWorkflowStage] = useState(
-        caseNumber ? "analysis" : "caseSelection"
+        isLinkedRoute ? "analysis" : "caseSelection"
     );
     const { recentCases, loading: isRecentLoading, error: recentCasesError } =
         useRecentCases(3);
@@ -348,11 +349,13 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         return mapped.length > 0 ? mapped : defaultCaseOptions;
     }, [recentCases]);
     const [linkError, setLinkError] = useState("");
+    const [missingDataTypes, setMissingDataTypes] = useState([]);
     const lastLinkedCaseRef = useRef(null);
 
     useEffect(() => {
         if (!caseNumber) {
             lastLinkedCaseRef.current = null;
+            setMissingDataTypes([]);
             return;
         }
 
@@ -368,6 +371,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         let isMounted = true;
         setLinkError("");
+        setMissingDataTypes([]);
 
         fetchCaseByNumber(caseNumber)
             .then((data) => {
@@ -377,13 +381,10 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
                 const evaluation = evaluateModuleReadiness(data, "fdr");
                 if (!evaluation.ready) {
-                    navigate("/cases/fdr", {
-                        replace: true,
-                        state: {
-                            analysisError: evaluation.message,
-                            attemptedCase: data?.caseNumber || caseNumber,
-                        },
-                    });
+                    setLinkError(evaluation.message);
+                    setMissingDataTypes(evaluation.missingTypes || []);
+                    setSelectedCase(null);
+                    setWorkflowStage("analysis");
                     return;
                 }
 
@@ -391,6 +392,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 setSelectedCase(preview);
                 setWorkflowStage("analysis");
                 lastLinkedCaseRef.current = caseNumber;
+                setLinkError("");
+                setMissingDataTypes([]);
             })
             .catch((err) => {
                 if (!isMounted) {
@@ -398,18 +401,56 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 }
 
                 setLinkError(err?.message || "Unable to open the selected case");
-                setWorkflowStage("caseSelection");
+                setMissingDataTypes([]);
+                setSelectedCase(null);
+                setWorkflowStage(isLinkedRoute ? "analysis" : "caseSelection");
             });
 
         return () => {
             isMounted = false;
         };
-    }, [caseNumber, navigate, selectedCase]);
+    }, [caseNumber, navigate, selectedCase, isLinkedRoute]);
 
     const handleNavigateToCases = () => {
         navigate("/cases");
     };
 
+const handleUploadMissingData = () => {
+        if (!caseNumber) {
+            return;
+        }
+
+        const normalizedMissing = missingDataTypes.map((type) => String(type || "").toLowerCase());
+        const hasFdr = normalizedMissing.includes("fdr");
+        const hasCvr = normalizedMissing.includes("cvr");
+
+        let focusUpload = "";
+        if (hasFdr && hasCvr) {
+            focusUpload = "both";
+        } else if (hasFdr) {
+            focusUpload = "fdr";
+        } else if (hasCvr) {
+            focusUpload = "cvr";
+        }
+
+        navigate("/cases", {
+            state: {
+                editCaseNumber: caseNumber,
+                focusUpload,
+                attemptedCase: caseNumber,
+            },
+        });
+    };
+
+    const handleChangeCase = () => {
+        if (isLinkedRoute) {
+            navigate("/cases");
+            return;
+        }
+        setWorkflowStage("caseSelection");
+        setLinkError("");
+        setMissingDataTypes([]);
+    };
 
     const toggleParameter = (parameter) => {
         setSelectedParameters((prev) =>
@@ -549,7 +590,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         </div>
     );
 
-    if (workflowStage === "caseSelection") {
+    if (!isLinkedRoute && workflowStage === "caseSelection") {
         return (
              <>
                 <div className="max-w-6xl mx-auto space-y-8">
@@ -586,6 +627,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                     onClick={() => {
                                         setSelectedCase(flightCase);
                                         setLinkError("");
+                                        setMissingDataTypes([]);
                                     }}
                                     className={`text-left rounded-2xl border transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100 ${
                                         isActive
@@ -929,8 +971,44 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             </div>
         );
     }
-
+    const canOfferUpload = isLinkedRoute && missingDataTypes.length > 0;
     if (workflowStage === "analysis" && !selectedCase) {
+          if (linkError) {
+            return (
+                <div className="max-w-3xl mx-auto py-24 text-center space-y-6">
+                    <div className="space-y-2">
+                        <h1 className="text-3xl font-semibold text-gray-900">Unable to open case</h1>
+                        <p className="text-sm text-gray-600">{linkError}</p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:justify-center gap-3">
+                        <button
+                            type="button"
+                            onClick={handleNavigateToCases}
+                            className="inline-flex items-center justify-center rounded-lg border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+                        >
+                            Back to cases
+                        </button>
+                        {canOfferUpload ? (
+                            <button
+                                type="button"
+                                onClick={handleUploadMissingData}
+                                className="inline-flex items-center justify-center rounded-lg border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+                            >
+                                Upload required data
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={handleChangeCase}
+                                className="inline-flex items-center justify-center rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                            >
+                                Choose another case
+                            </button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
         return (
             <div className="max-w-4xl mx-auto flex flex-col items-center justify-center gap-4 py-24 text-center">
                 <div className="h-12 w-12 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
@@ -963,7 +1041,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     </div>
                     <button
                         type="button"
-                        onClick={() => setWorkflowStage("caseSelection")}
+                        onClick={handleChangeCase}
                         className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 transition hover:border-emerald-200 hover:text-emerald-600"
                     >
                         Change case
