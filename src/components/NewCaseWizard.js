@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Check, UploadCloud, X } from 'lucide-react';
+import { formatFileSize } from '../utils/files';
+import { uploadAttachmentToObjectStore } from '../utils/storage';
 
 const steps = [
   { title: 'Step 1', subtitle: 'Case Details' },
@@ -40,6 +42,46 @@ const initialUploadState = {
   willUploadLater: true,
 };
 
+const determineModule = (hasFdrData, hasCvrData) => {
+  if (hasFdrData && hasCvrData) {
+    return 'CVR & FDR';
+  }
+
+  if (hasFdrData) {
+    return 'FDR';
+  }
+
+  if (hasCvrData) {
+    return 'CVR';
+  }
+
+  return 'CVR & FDR';
+};
+
+const determineStatus = (hasFdrData, hasCvrData) =>
+  hasFdrData && hasCvrData ? 'Analysis Not Started' : 'Data Incomplete';
+
+const buildAnalysesState = (hasFdrData, hasCvrData) => ({
+  fdr: {
+    status: hasFdrData ? 'Ready for Analysis' : 'Data Not Uploaded',
+    lastRun: null,
+    summary: hasFdrData ? 'FDR data uploaded and ready for analysis.' : 'Upload required before analysis can begin.',
+  },
+  cvr: {
+    status: hasCvrData ? 'Ready for Analysis' : 'Data Not Uploaded',
+    lastRun: null,
+    summary: hasCvrData ? 'CVR data uploaded and ready for analysis.' : 'Upload required before analysis can begin.',
+  },
+  correlate: {
+    status: hasFdrData && hasCvrData ? 'Not Started' : 'Blocked',
+    lastRun: null,
+    summary:
+      hasFdrData && hasCvrData
+        ? 'Correlation can begin once initial analyses are completed.'
+        : 'Requires both FDR and CVR datasets to proceed.',
+  },
+});
+
 const StepIndicator = ({ currentStep }) => (
   <ol className="grid grid-cols-5 gap-4 mb-10">
     {steps.map((step, index) => {
@@ -49,13 +91,12 @@ const StepIndicator = ({ currentStep }) => (
       return (
         <li key={step.title} className="flex flex-col items-center">
           <div
-            className={`flex items-center justify-center w-12 h-12 rounded-full border-2 transition-all ${
-              status === 'complete'
+            className={`flex items-center justify-center w-12 h-12 rounded-full border-2 transition-all ${status === 'complete'
                 ? 'border-emerald-500 bg-emerald-500 text-white'
                 : status === 'current'
-                ? 'border-emerald-500 text-emerald-600 bg-white'
-                : 'border-gray-300 text-gray-400 bg-white'
-            }`}
+                  ? 'border-emerald-500 text-emerald-600 bg-white'
+                  : 'border-gray-300 text-gray-400 bg-white'
+              }`}
           >
             {status === 'complete' ? <Check className="w-6 h-6" /> : index + 1}
           </div>
@@ -119,11 +160,10 @@ const FileUploadField = ({ id, label, helperText, accept, onChange, file, willUp
 
     <label
       htmlFor={id}
-      className={`flex flex-col items-center justify-center w-full border-2 border-dashed rounded-xl py-12 transition-colors ${
-        willUploadLater
+      className={`flex flex-col items-center justify-center w-full border-2 border-dashed rounded-xl py-12 transition-colors ${willUploadLater
           ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
           : 'border-gray-200 bg-gray-50 hover:border-emerald-500 hover:bg-white cursor-pointer'
-      }`}
+        }`}
     >
       <UploadCloud className="w-12 h-12 text-emerald-500 mb-3" />
       <p className="text-base font-semibold text-gray-700">
@@ -150,23 +190,6 @@ const FileUploadField = ({ id, label, helperText, accept, onChange, file, willUp
   </div>
 );
 
-const formatFileSize = (bytes) => {
-  if (!bytes || Number.isNaN(Number(bytes))) {
-    return '';
-  }
-
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = bytes;
-  let unitIndex = 0;
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
-};
-
 const normalizeDate = (value) => {
   if (!value) {
     return '';
@@ -188,6 +211,7 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
   const [fdrUpload, setFdrUpload] = useState(() => ({ ...initialUploadState }));
   const [cvrUpload, setCvrUpload] = useState(() => ({ ...initialUploadState }));
   const [localError, setLocalError] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const resetState = () => {
     setCurrentStep(0);
@@ -214,29 +238,9 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
     const hasFdrData = Boolean(fdrUpload.file && !fdrUpload.willUploadLater);
     const hasCvrData = Boolean(cvrUpload.file && !cvrUpload.willUploadLater);
 
-    const module = hasFdrData && hasCvrData ? 'CVR & FDR' : hasFdrData ? 'FDR' : hasCvrData ? 'CVR' : 'CVR & FDR';
-    const status = hasFdrData && hasCvrData ? 'Analysis Not Started' : 'Data Incomplete';
-
-    const analyses = {
-      fdr: {
-        status: hasFdrData ? 'Ready for Analysis' : 'Data Not Uploaded',
-        lastRun: null,
-        summary: hasFdrData ? 'Awaiting FDR analysis.' : 'Upload required before analysis can begin.',
-      },
-      cvr: {
-        status: hasCvrData ? 'Ready for Analysis' : 'Data Not Uploaded',
-        lastRun: null,
-        summary: hasCvrData ? 'Awaiting CVR analysis.' : 'Upload required before analysis can begin.',
-      },
-      correlate: {
-        status: hasFdrData && hasCvrData ? 'Not Started' : 'Blocked',
-        lastRun: null,
-        summary:
-          hasFdrData && hasCvrData
-            ? 'Correlation can begin once initial analyses are completed.'
-            : 'Requires both FDR and CVR datasets to proceed.',
-      },
-    };
+    const module = determineModule(hasFdrData, hasCvrData);
+    const status = determineStatus(hasFdrData, hasCvrData);
+    const analyses = buildAnalysesState(hasFdrData, hasCvrData);
 
     const attachments = [];
     if (hasFdrData && fdrUpload.file) {
@@ -330,7 +334,7 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
-  const buildPayload = () => {
+  const buildPayload = ({ attachments, analyses, module, status }) => {
     const normalizedDate = normalizeDate(caseInfo.occurrenceDate || aircraft.dateOfFlight);
     const tagsArray = caseInfo.tags
       .split(',')
@@ -343,16 +347,16 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
       owner: investigator.name,
       organization: investigator.organization,
       examiner: investigator.name,
-      module: derivedData.module,
-      status: derivedData.status,
+      module,
+      status,
       summary: caseInfo.summary,
       lastUpdated: normalizeDate(new Date()),
       date: normalizedDate,
       location: aircraft.location,
       aircraftType: aircraft.aircraftType,
       tags: tagsArray,
-      analyses: derivedData.analyses,
-      attachments: derivedData.attachments,
+      analyses,
+      attachments,
       timeline: [],
       investigator: {
         ...investigator,
@@ -369,13 +373,71 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
       return;
     }
 
-    const payload = buildPayload();
+    if (isProcessing) {
+      return;
+    }
+
+    const attachments = [];
+    const uploadedBy = investigator.name || 'Unknown';
+
+    const processUpload = async (uploadState, label) => {
+      const notes = uploadState.notes || '';
+      if (uploadState.file && !uploadState.willUploadLater) {
+        const result = await uploadAttachmentToObjectStore({
+          caseNumber: caseInfo.caseNumber,
+          attachmentType: label,
+          file: uploadState.file,
+        });
+
+        attachments.push({
+          type: label,
+          name: uploadState.file.name,
+          size: formatFileSize(uploadState.file.size),
+          sizeBytes: uploadState.file.size,
+          uploadedBy,
+          notes,
+          status: 'Uploaded',
+          storage: result.storage,
+          contentType: result.contentType,
+          uploadedAt: result.uploadedAt,
+        });
+
+        return true;
+      }
+
+      if (notes) {
+        attachments.push({
+          type: label,
+          name: `${label} data pending upload`,
+          size: '',
+          uploadedBy,
+          notes,
+          status: 'Pending',
+        });
+      }
+
+      return false;
+    };
 
     try {
+      setIsProcessing(true);
+      setLocalError('');
+
+      const hasFdrData = await processUpload(fdrUpload, 'FDR');
+      const hasCvrData = await processUpload(cvrUpload, 'CVR');
+
+      const module = determineModule(hasFdrData, hasCvrData);
+      const status = determineStatus(hasFdrData, hasCvrData);
+      const analyses = buildAnalysesState(hasFdrData, hasCvrData);
+
+      const payload = buildPayload({ attachments, analyses, module, status });
+
       await onSubmit(payload);
       resetState();
     } catch (error) {
       setLocalError(error.message || 'Unable to create case.');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -627,7 +689,7 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
             type="button"
             onClick={handleBack}
             className="px-5 py-3 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isProcessing}
           >
             Back
           </button>
@@ -636,9 +698,9 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
             onClick={handleSubmit}
             className="px-6 py-3 rounded-lg font-semibold text-white shadow-md"
             style={{ backgroundColor: '#019348' }}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isProcessing}
           >
-            {isSubmitting ? 'Creating…' : 'Create Case'}
+            {isProcessing ? 'Uploading…' : isSubmitting ? 'Creating…' : 'Create Case'}
           </button>
         </div>
       </div>
@@ -700,11 +762,10 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
               type="button"
               onClick={handleBack}
               disabled={currentStep === 0}
-              className={`px-5 py-3 rounded-lg border font-medium transition-colors ${
-                currentStep === 0
+              className={`px-5 py-3 rounded-lg border font-medium transition-colors ${currentStep === 0
                   ? 'border-gray-200 text-gray-400 cursor-not-allowed'
                   : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-              }`}
+                }`}
             >
               Back
             </button>

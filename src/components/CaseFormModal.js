@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { formatFileSize } from '../utils/files';
+import { uploadAttachmentToObjectStore } from '../utils/storage';
 
 const DEFAULT_ANALYSES = {
   fdr: { status: 'Not Started', lastRun: null, summary: '' },
@@ -17,23 +19,6 @@ const statuses = [
   'Paused',
   'Complete',
 ];
-
-const formatFileSize = (bytes) => {
-  if (!bytes || Number.isNaN(Number(bytes))) {
-    return '';
-  }
-
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = bytes;
-  let unitIndex = 0;
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
-};
 
 const FDR_EXTENSIONS = ['.csv', '.xls', '.xlsx'];
 const CVR_EXTENSIONS = ['.wav', '.mp3'];
@@ -112,6 +97,7 @@ const CaseFormModal = ({
 }) => {
   const [formValues, setFormValues] = useState(() => createDefaultValues());
   const [localError, setLocalError] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -162,9 +148,9 @@ const CaseFormModal = ({
         analyses:
           initialValues?.analyses && typeof initialValues.analyses === 'object'
             ? {
-                ...DEFAULT_ANALYSES,
-                ...initialValues.analyses,
-              }
+              ...DEFAULT_ANALYSES,
+              ...initialValues.analyses,
+            }
             : DEFAULT_ANALYSES,
         timeline: Array.isArray(initialValues?.timeline) ? initialValues.timeline : [],
       });
@@ -237,7 +223,26 @@ const CaseFormModal = ({
     }));
   };
 
-  const buildAttachments = (investigatorName) => {
+  const attachmentHasStoredData = (attachment) => {
+    if (!attachment || typeof attachment !== 'object') {
+      return false;
+    }
+
+    if (attachment.storage && attachment.storage.objectKey) {
+      return true;
+    }
+
+    const status = typeof attachment.status === 'string' ? attachment.status.toLowerCase() : '';
+    const name = typeof attachment.name === 'string' ? attachment.name.toLowerCase() : '';
+
+    if (status === 'pending' || name.includes('pending upload')) {
+      return false;
+    }
+
+    return Boolean(attachment.name);
+  };
+
+  const buildAttachments = async (investigatorName) => {
     const uploads = formValues.uploads || {};
     const existingAttachments = Array.isArray(formValues.attachments)
       ? formValues.attachments
@@ -247,26 +252,38 @@ const CaseFormModal = ({
     );
 
     const attachments = [...otherAttachments];
-    const ownerValue = investigatorName || formValues.owner;
+    const ownerValue = investigatorName || formValues.owner || '';
 
-    const processUpload = (key, label) => {
+    const processUpload = async (key, label) => {
       const upload = uploads[key] || {};
       const existing =
         upload.existingAttachment ||
         existingAttachments.find((item) => item?.type === label);
       const file = upload.file;
       const notes = upload.notes ?? existing?.notes ?? '';
-      const uploadedBy = existing?.uploadedBy || ownerValue;
+      const uploadedBy = existing?.uploadedBy || ownerValue || investigatorName || 'Unknown';
 
       if (file) {
+        const result = await uploadAttachmentToObjectStore({
+          caseNumber: formValues.caseNumber,
+          attachmentType: label,
+          file,
+        });
+
         attachments.push({
           type: label,
           name: file.name,
           size: formatFileSize(file.size),
+          sizeBytes: file.size,
           uploadedBy,
           notes,
+          status: 'Uploaded',
+          storage: result.storage,
+          contentType: result.contentType,
+          uploadedAt: result.uploadedAt,
         });
         return true;
+
       }
 
       if (existing) {
@@ -275,9 +292,7 @@ const CaseFormModal = ({
           notes,
         });
 
-        const status = typeof existing.status === 'string' ? existing.status.toLowerCase() : '';
-        const name = typeof existing.name === 'string' ? existing.name.toLowerCase() : '';
-        return status !== 'pending' && !name.includes('pending upload');
+        return attachmentHasStoredData(existing);
       }
 
       if (notes) {
@@ -294,8 +309,8 @@ const CaseFormModal = ({
       return false;
     };
 
-    const hasFdrData = processUpload('fdr', 'FDR');
-    const hasCvrData = processUpload('cvr', 'CVR');
+    const hasFdrData = await processUpload('fdr', 'FDR');
+    const hasCvrData = await processUpload('cvr', 'CVR');
 
     return { attachments, hasFdrData, hasCvrData };
   };
@@ -315,8 +330,8 @@ const CaseFormModal = ({
       ...analysis,
       status:
         !analysis.status ||
-        analysis.status === 'Data Not Uploaded' ||
-        analysis.status === 'Not Started'
+          analysis.status === 'Data Not Uploaded' ||
+          analysis.status === 'Not Started'
           ? 'Ready for Analysis'
           : analysis.status,
       summary:
@@ -329,15 +344,15 @@ const CaseFormModal = ({
       ...analysis,
       status:
         !analysis.status ||
-        analysis.status === 'Ready for Analysis' ||
-        analysis.status === 'Not Started' ||
-        analysis.status === 'Data Not Uploaded'
+          analysis.status === 'Ready for Analysis' ||
+          analysis.status === 'Not Started' ||
+          analysis.status === 'Data Not Uploaded'
           ? 'Data Not Uploaded'
           : analysis.status,
       summary:
         analysis.status === 'Ready for Analysis' ||
-        analysis.status === 'Not Started' ||
-        analysis.status === 'Data Not Uploaded'
+          analysis.status === 'Not Started' ||
+          analysis.status === 'Data Not Uploaded'
           ? 'Upload required before analysis can begin.'
           : analysis.summary,
     });
@@ -348,32 +363,36 @@ const CaseFormModal = ({
     const correlateReady = hasFdrData && hasCvrData;
     next.correlate = correlateReady
       ? {
-          ...next.correlate,
-          status: next.correlate.status === 'Blocked' ? 'Not Started' : next.correlate.status,
-          summary:
-            next.correlate.status === 'Blocked'
-              ? 'Correlation can begin once initial analyses are completed.'
-              : next.correlate.summary,
-        }
+        ...next.correlate,
+        status: next.correlate.status === 'Blocked' ? 'Not Started' : next.correlate.status,
+        summary:
+          next.correlate.status === 'Blocked'
+            ? 'Correlation can begin once initial analyses are completed.'
+            : next.correlate.summary,
+      }
       : {
-          ...next.correlate,
-          status:
-            !next.correlate.status ||
+        ...next.correlate,
+        status:
+          !next.correlate.status ||
             next.correlate.status === 'Not Started' ||
             next.correlate.status === 'Blocked'
-              ? 'Blocked'
-              : next.correlate.status,
-          summary:
-            !next.correlate.summary || next.correlate.status === 'Blocked'
-              ? 'Requires both FDR and CVR datasets to proceed.'
-              : next.correlate.summary,
-        };
+            ? 'Blocked'
+            : next.correlate.status,
+        summary:
+          !next.correlate.summary || next.correlate.status === 'Blocked'
+            ? 'Requires both FDR and CVR datasets to proceed.'
+            : next.correlate.summary,
+      };
 
     return next;
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+
+    if (isProcessing) {
+      return;
+    }
 
     const investigatorName = formValues.investigator?.name || '';
     const ownerValue = formValues.owner || investigatorName;
@@ -384,7 +403,10 @@ const CaseFormModal = ({
     }
 
     try {
-      const { attachments, hasFdrData, hasCvrData } = buildAttachments(investigatorName);
+      setIsProcessing(true);
+      setLocalError('');
+
+      const { attachments, hasFdrData, hasCvrData } = await buildAttachments(investigatorName);
       const analyses = updateAnalyses(hasFdrData, hasCvrData);
 
       const sanitizedUploads = {
@@ -393,9 +415,9 @@ const CaseFormModal = ({
           existingAttachment: formValues.uploads?.fdr?.existingAttachment || null,
           ...(formValues.uploads?.fdr?.file
             ? {
-                selectedFileName: formValues.uploads.fdr.file.name,
-                selectedFileSize: formValues.uploads.fdr.file.size,
-              }
+              selectedFileName: formValues.uploads.fdr.file.name,
+              selectedFileSize: formValues.uploads.fdr.file.size,
+            }
             : {}),
         },
         cvr: {
@@ -403,9 +425,9 @@ const CaseFormModal = ({
           existingAttachment: formValues.uploads?.cvr?.existingAttachment || null,
           ...(formValues.uploads?.cvr?.file
             ? {
-                selectedFileName: formValues.uploads.cvr.file.name,
-                selectedFileSize: formValues.uploads.cvr.file.size,
-              }
+              selectedFileName: formValues.uploads.cvr.file.name,
+              selectedFileSize: formValues.uploads.cvr.file.size,
+            }
             : {}),
         },
       };
@@ -413,9 +435,9 @@ const CaseFormModal = ({
       const tags = Array.isArray(formValues.tags)
         ? formValues.tags
         : (formValues.tags || '')
-            .split(',')
-            .map((tag) => tag.trim())
-            .filter(Boolean);
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean);
 
       const aircraft = {
         ...createDefaultValues().aircraft,
@@ -446,9 +468,10 @@ const CaseFormModal = ({
         lastUpdated: formatDateInput(formValues.lastUpdated) || null,
         date: formatDateInput(formValues.date) || null,
       });
-      setLocalError('');
     } catch (error) {
-      setLocalError(error.message);
+      setLocalError(error.message || 'Unable to save case changes.');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -734,10 +757,9 @@ const CaseFormModal = ({
                       {fdrUpload.file
                         ? `Selected file: ${fdrUpload.file.name} (${formatFileSize(fdrUpload.file.size)})`
                         : fdrUpload.existingAttachment
-                        ? `Current file: ${fdrUpload.existingAttachment.name || 'Pending upload'}${
-                            fdrUpload.existingAttachment.size ? ` (${fdrUpload.existingAttachment.size})` : ''
+                          ? `Current file: ${fdrUpload.existingAttachment.name || 'Pending upload'}${fdrUpload.existingAttachment.size ? ` (${fdrUpload.existingAttachment.size})` : ''
                           }`
-                        : 'No file uploaded yet.'}
+                          : 'No file uploaded yet.'}
                     </p>
                   </div>
                   <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
@@ -778,10 +800,9 @@ const CaseFormModal = ({
                       {cvrUpload.file
                         ? `Selected file: ${cvrUpload.file.name} (${formatFileSize(cvrUpload.file.size)})`
                         : cvrUpload.existingAttachment
-                        ? `Current file: ${cvrUpload.existingAttachment.name || 'Pending upload'}${
-                            cvrUpload.existingAttachment.size ? ` (${cvrUpload.existingAttachment.size})` : ''
+                          ? `Current file: ${cvrUpload.existingAttachment.name || 'Pending upload'}${cvrUpload.existingAttachment.size ? ` (${cvrUpload.existingAttachment.size})` : ''
                           }`
-                        : 'No file uploaded yet.'}
+                          : 'No file uploaded yet.'}
                     </p>
                   </div>
                   <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
@@ -849,7 +870,7 @@ const CaseFormModal = ({
               type="button"
               onClick={onClose}
               className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isProcessing}
             >
               Cancel
             </button>
@@ -857,9 +878,15 @@ const CaseFormModal = ({
               type="submit"
               className="px-4 py-2 rounded-lg text-white font-semibold shadow-md"
               style={{ backgroundColor: '#019348' }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isProcessing}
             >
-              {isSubmitting ? 'Saving…' : mode === 'edit' ? 'Save Changes' : 'Create Case'}
+              {isProcessing
+                ? 'Uploading…'
+                : isSubmitting
+                  ? 'Saving…'
+                  : mode === 'edit'
+                    ? 'Save Changes'
+                    : 'Create Case'}
             </button>
           </div>
         </form>
