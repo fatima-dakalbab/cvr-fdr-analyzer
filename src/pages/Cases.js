@@ -90,9 +90,28 @@ const Cases = () => {
       });
     }
 
-    if (state.openNewCase || state.editCaseNumber || state.attemptedCase) {
-      const nextState = state.attemptedCase ? { attemptedCase: state.attemptedCase } : {};
-      navigate(location.pathname, { replace: true, state: nextState });
+     const shouldCleanState =
+      state.openNewCase ||
+      state.editCaseNumber ||
+      state.focusUpload ||
+      (!state.openNewCase &&
+        !state.editCaseNumber &&
+        !state.focusUpload &&
+        state.attemptedCase &&
+        Object.keys(state).length > 1);
+
+    if (shouldCleanState) {
+      const nextState = state.attemptedCase ? { attemptedCase: state.attemptedCase } : null;
+      const currentStateMatchesNext =
+        (nextState === null && Object.keys(state).length === 0) ||
+        (nextState !== null &&
+          Object.keys(state).length === 1 &&
+          Object.prototype.hasOwnProperty.call(state, 'attemptedCase') &&
+          state.attemptedCase === nextState.attemptedCase);
+
+      if (!currentStateMatchesNext) {
+        navigate(location.pathname, { replace: true, state: nextState || undefined });
+      }
     }
   }, [location, navigate]);
 
