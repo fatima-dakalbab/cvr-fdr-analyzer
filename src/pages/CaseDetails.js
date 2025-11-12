@@ -16,24 +16,25 @@ import {
 } from 'lucide-react';
 import { fetchCaseByNumber } from '../api/cases';
 import { evaluateModuleReadiness } from '../utils/analysisAvailability';
+import {
+  CASE_STATUS_CVR_ANALYZED,
+  CASE_STATUS_FDR_ANALYZED,
+  CASE_STATUS_CORRELATE_ANALYZED,
+  CASE_STATUS_READY_FOR_ANALYSIS,
+  CASE_STATUS_DATA_REQUIRED,
+  CASE_STATUS_ANALYSIS_IN_PROGRESS,
+  CASE_STATUS_ANALYSIS_PAUSED,
+  normalizeCaseRecord,
+} from '../utils/statuses';
 
 const statusColors = {
-  Complete: 'text-emerald-700 bg-emerald-100',
-  Completed: 'text-emerald-700 bg-emerald-100',
-  'In Progress': 'text-amber-700 bg-amber-100',
-  'Pending Review': 'text-sky-700 bg-sky-100',
-  'Data Required': 'text-rose-700 bg-rose-100',
-  'Data Incomplete': 'text-rose-700 bg-rose-100',
-  'Not Applicable': 'text-gray-600 bg-gray-100',
-  Blocked: 'text-rose-700 bg-rose-100',
-  'Not Started': 'text-gray-700 bg-gray-100',
-  'Analysis Not Started': 'text-gray-700 bg-gray-100',
-  'Ready for Analysis': 'text-sky-700 bg-sky-100',
-  'Data Not Uploaded': 'text-gray-600 bg-gray-100',
-  Paused: 'text-amber-700 bg-amber-100',
-  'FDR Analyzed': 'text-emerald-700 bg-emerald-100',
-  'CVR Analyzed': 'text-emerald-700 bg-emerald-100',
-  'Correlation Analyzed': 'text-emerald-700 bg-emerald-100',
+  [CASE_STATUS_CVR_ANALYZED]: 'text-emerald-700 bg-emerald-100',
+  [CASE_STATUS_FDR_ANALYZED]: 'text-emerald-700 bg-emerald-100',
+  [CASE_STATUS_CORRELATE_ANALYZED]: 'text-emerald-700 bg-emerald-100',
+  [CASE_STATUS_READY_FOR_ANALYSIS]: 'text-sky-700 bg-sky-100',
+  [CASE_STATUS_DATA_REQUIRED]: 'text-rose-700 bg-rose-100',
+  [CASE_STATUS_ANALYSIS_IN_PROGRESS]: 'text-amber-700 bg-amber-100',
+  [CASE_STATUS_ANALYSIS_PAUSED]: 'text-gray-700 bg-gray-100',
 };
 
 const analysisIcon = {
@@ -68,7 +69,7 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
 
       try {
         const data = await fetchCaseByNumber(caseNumber);
-        setCaseData(data);
+        setCaseData(normalizeCaseRecord(data));
       } catch (err) {
         setError(err.message || 'Unable to load case details');
         setCaseData(null);

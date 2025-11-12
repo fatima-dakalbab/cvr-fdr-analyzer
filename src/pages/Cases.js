@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -19,22 +19,41 @@ import {
 } from '../api/cases';
 import { evaluateModuleReadiness } from '../utils/analysisAvailability';
 
+import {
+  CASE_STATUS_OPTIONS,
+  CASE_STATUS_CVR_ANALYZED,
+  CASE_STATUS_FDR_ANALYZED,
+  CASE_STATUS_CORRELATE_ANALYZED,
+  CASE_STATUS_READY_FOR_ANALYSIS,
+  CASE_STATUS_DATA_REQUIRED,
+  CASE_STATUS_ANALYSIS_IN_PROGRESS,
+  CASE_STATUS_ANALYSIS_PAUSED,
+  normalizeCaseRecord,
+} from '../utils/statuses';
+
+const FALLBACK_MODULE_LABEL = 'Unassigned';
+
+const formatDateString = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return typeof value === 'string' ? value : null;
+  }
+
+  return parsed.toISOString().slice(0, 10);
+};
+
 const statusStyles = {
-  Complete: 'bg-emerald-100 text-emerald-700',
-  Completed: 'bg-emerald-100 text-emerald-700',
-  'In Progress': 'bg-amber-100 text-amber-700',
-  'Pending Review': 'bg-sky-100 text-sky-700',
-  'Data Required': 'bg-rose-100 text-rose-700',
-  'Not Started': 'bg-gray-100 text-gray-600',
-  'Analysis Not Started': 'bg-gray-100 text-gray-700',
-  'Data Incomplete': 'bg-rose-100 text-rose-700',
-  'Ready for Analysis': 'bg-sky-100 text-sky-700',
-  'Data Not Uploaded': 'bg-gray-100 text-gray-600',
-  Blocked: 'bg-rose-100 text-rose-700',
-  Paused: 'bg-amber-100 text-amber-700',
-  'FDR Analyzed': 'bg-emerald-100 text-emerald-700',
-  'CVR Analyzed': 'bg-emerald-100 text-emerald-700',
-  'Correlation Analyzed': 'bg-emerald-100 text-emerald-700',
+  [CASE_STATUS_CVR_ANALYZED]: 'bg-emerald-100 text-emerald-700',
+  [CASE_STATUS_FDR_ANALYZED]: 'bg-emerald-100 text-emerald-700',
+  [CASE_STATUS_CORRELATE_ANALYZED]: 'bg-emerald-100 text-emerald-700',
+  [CASE_STATUS_READY_FOR_ANALYSIS]: 'bg-sky-100 text-sky-700',
+  [CASE_STATUS_DATA_REQUIRED]: 'bg-rose-100 text-rose-700',
+  [CASE_STATUS_ANALYSIS_IN_PROGRESS]: 'bg-amber-100 text-amber-700',
+  [CASE_STATUS_ANALYSIS_PAUSED]: 'bg-gray-200 text-gray-700',
 };
 
 const Cases = () => {
@@ -55,6 +74,40 @@ const Cases = () => {
   const [moduleCheck, setModuleCheck] = useState('');
   const [uploadFocus, setUploadFocus] = useState('');
   const [pendingEditRequest, setPendingEditRequest] = useState(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [statusFilters, setStatusFilters] = useState([]);
+  const [moduleFilters, setModuleFilters] = useState([]);
+
+  const sortCasesByRecency = useCallback((list) => {
+    if (!Array.isArray(list)) {
+      return [];
+    }
+
+    const toTimestamp = (value) => {
+      if (!value) {
+        return null;
+      }
+
+      const parsed = new Date(value);
+      const time = parsed.getTime();
+      return Number.isNaN(time) ? null : time;
+    };
+
+    return [...list].sort((a, b) => {
+      const aTimes = [a.lastUpdated, a.updatedAt, a.createdAt]
+        .map(toTimestamp)
+        .filter((item) => item !== null);
+      const bTimes = [b.lastUpdated, b.updatedAt, b.createdAt]
+        .map(toTimestamp)
+        .filter((item) => item !== null);
+
+      const aTime = aTimes.length > 0 ? Math.max(...aTimes) : 0;
+      const bTime = bTimes.length > 0 ? Math.max(...bTimes) : 0;
+
+      return bTime - aTime;
+    });
+  }, []);
+
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -64,7 +117,8 @@ const Cases = () => {
       setError('');
       try {
         const data = await fetchCases();
-        setCases(Array.isArray(data) ? data : []);
+        const normalizedCases = (Array.isArray(data) ? data : []).map(normalizeCaseRecord);
+        setCases(sortCasesByRecency(normalizedCases));
       } catch (err) {
         setError(err.message || 'Unable to load cases');
       } finally {
@@ -73,7 +127,7 @@ const Cases = () => {
     };
 
     loadCases();
-  }, []);
+  }, [sortCasesByRecency]);
 
   useEffect(() => {
     const state = location.state || {};
@@ -90,7 +144,7 @@ const Cases = () => {
       });
     }
 
-     const shouldCleanState =
+    const shouldCleanState =
       state.openNewCase ||
       state.editCaseNumber ||
       state.focusUpload ||
@@ -143,24 +197,90 @@ const Cases = () => {
     }
   }, [selectedCaseNumber]);
 
-  const filteredCases = useMemo(() => {
-    if (!searchTerm) {
-      return cases;
-    }
+  const availableStatuses = useMemo(() => {
+    const discovered = new Set(CASE_STATUS_OPTIONS);
+    cases
+      .map((item) => item.status)
+      .filter((value) => typeof value === 'string' && value.trim().length > 0)
+      .forEach((value) => discovered.add(value));
 
-    const value = searchTerm.toLowerCase();
-    return cases.filter((item) =>
-      [
-        item.caseName,
-        item.caseNumber,
-        item.owner,
-        item.organization,
-        item.examiner,
-      ]
-        .filter(Boolean)
-        .some((field) => field.toLowerCase().includes(value)),
+    const extraStatuses = Array.from(discovered)
+      .filter((status) => !CASE_STATUS_OPTIONS.includes(status))
+      .sort((a, b) => a.localeCompare(b));
+
+    return [...CASE_STATUS_OPTIONS, ...extraStatuses];
+  }, [cases]);
+
+  const availableModules = useMemo(() => {
+    const unique = new Set();
+    cases.forEach((item) => {
+      const value = typeof item.module === 'string' && item.module.trim().length > 0
+        ? item.module
+        : FALLBACK_MODULE_LABEL;
+      unique.add(value);
+    });
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [cases]);
+
+  const filteredCases = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return cases.filter((item) => {
+      const matchesSearch = !normalizedSearch
+        ? true
+        : [
+          item.caseName,
+          item.caseNumber,
+          item.owner,
+          item.organization,
+          item.examiner,
+        ]
+          .filter(Boolean)
+          .some((field) => field.toLowerCase().includes(normalizedSearch));
+
+      if (!matchesSearch) {
+        return false;
+      }
+
+      const matchesStatus =
+        statusFilters.length === 0 || statusFilters.includes(item.status);
+
+      if (!matchesStatus) {
+        return false;
+      }
+
+      const moduleLabel =
+        typeof item.module === 'string' && item.module.trim().length > 0
+          ? item.module
+          : FALLBACK_MODULE_LABEL;
+      const matchesModule =
+        moduleFilters.length === 0 || moduleFilters.includes(moduleLabel);;
+      return matchesModule;
+    });
+  }, [cases, searchTerm, statusFilters, moduleFilters]);
+
+  const activeFilterCount = statusFilters.length + moduleFilters.length;
+
+  const toggleStatusFilter = (value) => {
+    setStatusFilters((prev) =>
+      prev.includes(value)
+        ? prev.filter((item) => item !== value)
+        : [...prev, value],
     );
-  }, [cases, searchTerm]);
+  };
+
+  const toggleModuleFilter = (value) => {
+    setModuleFilters((prev) =>
+      prev.includes(value)
+        ? prev.filter((item) => item !== value)
+        : [...prev, value],
+    );
+  };
+
+  const clearFilters = () => {
+    setStatusFilters([]);
+    setModuleFilters([]);
+  };
 
   const openCreateWizard = () => {
     setIsWizardOpen(true);
@@ -195,8 +315,13 @@ const Cases = () => {
         timeline: Array.isArray(formValues.timeline) ? formValues.timeline : [],
         attachments: Array.isArray(formValues.attachments) ? formValues.attachments : [],
       };
-      const created = await createCase(payload);
-      setCases((prev) => [created, ...prev.filter((item) => item.caseNumber !== created.caseNumber)]);
+      const created = normalizeCaseRecord(await createCase(payload));
+      setCases((prev) =>
+        sortCasesByRecency([
+          created,
+          ...prev.filter((item) => item.caseNumber !== created.caseNumber),
+        ]),
+      );
       setSelectedCaseNumber(created.caseNumber);
       setFeedback('Case created successfully.');
       setIsWizardOpen(false);
@@ -222,12 +347,14 @@ const Cases = () => {
         ...editingCase,
         ...formValues,
       };
-      const updated = await updateCase(editingCase.caseNumber, payload);
+      const updated = normalizeCaseRecord(await updateCase(editingCase.caseNumber, payload));
       if (!updated) {
         throw new Error('Case not found');
       }
       setCases((prev) =>
-        prev.map((item) => (item.caseNumber === updated.caseNumber ? updated : item)),
+        sortCasesByRecency(
+          prev.map((item) => (item.caseNumber === updated.caseNumber ? updated : item)),
+        ),
       );
       setSelectedCaseNumber(updated.caseNumber);
       setFeedback('Case updated successfully.');
@@ -247,7 +374,9 @@ const Cases = () => {
 
     try {
       await deleteCase(caseNumber);
-      setCases((prev) => prev.filter((item) => item.caseNumber !== caseNumber));
+      setCases((prev) =>
+        sortCasesByRecency(prev.filter((item) => item.caseNumber !== caseNumber)),
+      );
       if (selectedCaseNumber === caseNumber) {
         setSelectedCaseNumber(null);
       }
@@ -257,7 +386,7 @@ const Cases = () => {
     }
   };
 
-   const handleModuleNavigate = async (moduleKey) => {
+  const handleModuleNavigate = async (moduleKey) => {
     if (!selectedCase) {
       setAnalysisError('Select a case before opening an analysis module.');
       return;
@@ -271,7 +400,7 @@ const Cases = () => {
     setModuleCheck(moduleKey);
 
     try {
-      const latest = await fetchCaseByNumber(selectedCase.caseNumber);
+      const latest = normalizeCaseRecord(await fetchCaseByNumber(selectedCase.caseNumber));
 
       if (!latest) {
         setAnalysisError('The selected case could not be found. Please refresh and try again.');
@@ -284,7 +413,8 @@ const Cases = () => {
           return prev;
         }
 
-        return prev.map((item) => (item.caseNumber === latest.caseNumber ? latest : item));
+        const next = prev.map((item) => (item.caseNumber === latest.caseNumber ? latest : item));
+        return sortCasesByRecency(next);
       });
 
       setSelectedCaseNumber(latest.caseNumber);
@@ -313,12 +443,20 @@ const Cases = () => {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
-            disabled
-            title="Filter functionality coming soon"
+            onClick={() => setIsFilterOpen((prev) => !prev)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${isFilterOpen
+              ? 'border-emerald-500 text-emerald-600 bg-emerald-50'
+              : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            aria-pressed={isFilterOpen}
           >
             <Filter className="w-4 h-4" />
             Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-1 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-500 px-2 text-xs font-semibold text-white">
+                {activeFilterCount}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -345,6 +483,98 @@ const Cases = () => {
             className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
+
+        {isFilterOpen && (
+          <div className="border border-gray-200 rounded-lg bg-gray-50 p-4 space-y-4">
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700">Module</h4>
+              {availableModules.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-3">
+                  {availableModules.map((module) => (
+                    <label key={module} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={moduleFilters.includes(module)}
+                        onChange={() => toggleModuleFilter(module)}
+                        className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      {module}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-gray-500">Modules will appear once cases are loaded.</p>
+              )}
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700">Status</h4>
+              {availableStatuses.length > 0 ? (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {availableStatuses.map((status) => (
+                    <label key={status} className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={statusFilters.includes(status)}
+                        onChange={() => toggleStatusFilter(status)}
+                        className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      {status}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-gray-500">Statuses will appear once cases are loaded.</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+              <button
+                type="button"
+                onClick={clearFilters}
+                disabled={activeFilterCount === 0}
+                className="px-3 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Clear filters
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen(false)}
+                className="px-3 py-2 text-sm rounded-lg bg-emerald-500 text-white font-semibold hover:bg-emerald-600"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+
+        {activeFilterCount > 0 && !isFilterOpen && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            <span className="font-semibold text-emerald-900">Active filters:</span>
+            {moduleFilters.map((module) => (
+              <span
+                key={`module-${module}`}
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2 py-1 text-xs text-emerald-700 shadow-sm"
+              >
+                Module: {module}
+              </span>
+            ))}
+            {statusFilters.map((status) => (
+              <span
+                key={`status-${status}`}
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2 py-1 text-xs text-emerald-700 shadow-sm"
+              >
+                Status: {status}
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="ml-auto text-xs font-semibold text-emerald-700 hover:underline"
+            >
+              Clear
+            </button>
+          </div>
+        )}
+
 
         {feedback && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -384,7 +614,15 @@ const Cases = () => {
               <tbody>
                 {filteredCases.map((caseItem) => {
                   const isSelected = selectedCaseNumber === caseItem.caseNumber;
-
+                  const moduleLabel =
+                    typeof caseItem.module === 'string' && caseItem.module.trim().length > 0
+                      ? caseItem.module
+                      : FALLBACK_MODULE_LABEL;
+                  const lastUpdatedDisplay =
+                    formatDateString(caseItem.lastUpdated) ||
+                    formatDateString(caseItem.updatedAt) ||
+                    formatDateString(caseItem.createdAt) ||
+                    '—';
                   return (
                     <tr
                       key={caseItem.caseNumber}
@@ -405,8 +643,8 @@ const Cases = () => {
                       </td>
                       <td className="px-4 py-4 text-sm font-medium text-gray-900">{caseItem.caseName}</td>
                       <td className="px-4 py-4 text-sm text-emerald-600 font-semibold">{caseItem.caseNumber}</td>
-                      <td className="px-4 py-4 text-sm text-gray-700">{caseItem.module}</td>
-                      <td className="px-4 py-4 text-sm text-gray-600">{caseItem.lastUpdated || '—'}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{moduleLabel}</td>
+                      <td className="px-4 py-4 text-sm text-gray-600">{lastUpdatedDisplay}</td>
                       <td className="px-4 py-4 text-sm">
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-semibold ${statusStyles[caseItem.status] || 'bg-gray-100 text-gray-600'
@@ -450,7 +688,7 @@ const Cases = () => {
                 {filteredCases.length === 0 && !loading && (
                   <tr>
                     <td colSpan={8} className="px-4 py-6 text-center text-sm text-gray-500">
-                      No cases match your search.
+                      No cases match your search  or filters.
                     </td>
                   </tr>
                 )}

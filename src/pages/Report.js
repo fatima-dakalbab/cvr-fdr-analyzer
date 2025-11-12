@@ -6,7 +6,7 @@ const cases = [
     caseNumber: "AAI-UAE-2025-001",
     caseName: "Dubai Creek Runway Excursion",
     module: "CVR & FDR",
-    status: "Complete",
+    status: "Correlate Analyzed",
     lead: "Eng. Ahmed Al Mansoori",
     lastUpdated: "2025-06-03",
     summary:
@@ -16,7 +16,7 @@ const cases = [
     caseNumber: "AAI-UAE-2025-004",
     caseName: "Sharjah Desert UAV Incident",
     module: "FDR",
-    status: "In Progress",
+    status: "Analysis In Progress",
     lead: "Dr. Hessa Al Suwaidi",
     lastUpdated: "2025-05-28",
     summary:
@@ -26,7 +26,7 @@ const cases = [
     caseNumber: "AAI-UAE-2025-009",
     caseName: "Abu Dhabi Mid-Air Near Miss",
     module: "CVR",
-    status: "Pending Review",
+    status: "Ready for Analysis",
     lead: "Capt. Khalid Al Hameli",
     lastUpdated: "2025-05-16",
     summary:

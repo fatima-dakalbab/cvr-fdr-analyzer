@@ -9,7 +9,6 @@ import {
   HelpCircle,
   Home,
   PlaneTakeoff,
-  Search,
   Workflow,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
@@ -78,14 +77,7 @@ const AuthenticatedLayout = () => {
                 CVR/FDR Analyzer
               </h1>
             </button>
-            <div className="relative flex-1 max-w-xl">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Search cases, analysis or help"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
+            <div className="flex-1" />
             <div className="flex items-center gap-4 ml-auto">
               <button
                 type="button"

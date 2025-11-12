@@ -2,6 +2,10 @@ import React, { useMemo, useState } from 'react';
 import { Check, UploadCloud, X } from 'lucide-react';
 import { formatFileSize } from '../utils/files';
 import { uploadAttachmentToObjectStore } from '../utils/storage';
+import {
+  CASE_STATUS_READY_FOR_ANALYSIS,
+  DEFAULT_CASE_STATUS,
+} from '../utils/statuses';
 
 const steps = [
   { title: 'Step 1', subtitle: 'Case Details' },
@@ -59,16 +63,16 @@ const determineModule = (hasFdrData, hasCvrData) => {
 };
 
 const determineStatus = (hasFdrData, hasCvrData) =>
-  hasFdrData && hasCvrData ? 'Analysis Not Started' : 'Data Incomplete';
+ hasFdrData && hasCvrData ? CASE_STATUS_READY_FOR_ANALYSIS : DEFAULT_CASE_STATUS;
 
 const buildAnalysesState = (hasFdrData, hasCvrData) => ({
   fdr: {
-    status: hasFdrData ? 'Ready for Analysis' : 'Data Not Uploaded',
+    status: hasFdrData ? CASE_STATUS_READY_FOR_ANALYSIS : 'Data Not Uploaded',
     lastRun: null,
     summary: hasFdrData ? 'FDR data uploaded and ready for analysis.' : 'Upload required before analysis can begin.',
   },
   cvr: {
-    status: hasCvrData ? 'Ready for Analysis' : 'Data Not Uploaded',
+    status: hasCvrData ? CASE_STATUS_READY_FOR_ANALYSIS : 'Data Not Uploaded',
     lastRun: null,
     summary: hasCvrData ? 'CVR data uploaded and ready for analysis.' : 'Upload required before analysis can begin.',
   },

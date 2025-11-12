@@ -286,7 +286,7 @@ const CaseFormModal = ({
           contentType: result.contentType,
           uploadedAt: result.uploadedAt,
         });
-        return true;
+        return { hasData: true, uploadedNow: true };
 
       }
 
@@ -296,7 +296,10 @@ const CaseFormModal = ({
           notes,
         });
 
-        return attachmentHasStoredData(existing);
+        return {
+          hasData: attachmentHasStoredData(existing),
+          uploadedNow: false,
+        };
       }
 
       if (notes) {
@@ -310,13 +313,19 @@ const CaseFormModal = ({
         });
       }
 
-      return false;
+      return { hasData: false, uploadedNow: false };
     };
 
-    const hasFdrData = await processUpload('fdr', 'FDR');
-    const hasCvrData = await processUpload('cvr', 'CVR');
+    const fdrResult = await processUpload('fdr', 'FDR');
+    const cvrResult = await processUpload('cvr', 'CVR');
 
-    return { attachments, hasFdrData, hasCvrData };
+    return {
+      attachments,
+      hasFdrData: fdrResult.hasData,
+      hasCvrData: cvrResult.hasData,
+      fdrUploadedNow: fdrResult.uploadedNow,
+      cvrUploadedNow: cvrResult.uploadedNow,
+    };
   };
 
   const updateAnalyses = (hasFdrData, hasCvrData) => {
@@ -410,9 +419,28 @@ const CaseFormModal = ({
       setIsProcessing(true);
       setLocalError('');
 
-      const { attachments, hasFdrData, hasCvrData } = await buildAttachments(investigatorName);
+      const {
+        attachments,
+        hasFdrData,
+        hasCvrData,
+        fdrUploadedNow,
+        cvrUploadedNow,
+      } = await buildAttachments(investigatorName);
       const analyses = updateAnalyses(hasFdrData, hasCvrData);
+      const uploadedNow = fdrUploadedNow || cvrUploadedNow;
+      const resetStatus = uploadedNow ? 'Analysis Not Started' : formValues.status;
+      const currentDate = new Date().toISOString().slice(0, 10);
+      const normalizedLastUpdated = uploadedNow
+        ? currentDate
+        : formatDateInput(formValues.lastUpdated) || null;
 
+      if (uploadedNow) {
+        setFormValues((prev) => ({
+          ...prev,
+          status: resetStatus,
+          lastUpdated: currentDate,
+        }));
+      }
       const sanitizedUploads = {
         fdr: {
           notes: formValues.uploads?.fdr?.notes || '',
@@ -458,6 +486,7 @@ const CaseFormModal = ({
 
       await onSubmit({
         ...formValues,
+        status: resetStatus,
         uploads: sanitizedUploads,
         owner: ownerValue,
         examiner: formValues.examiner || investigatorName,
@@ -469,7 +498,7 @@ const CaseFormModal = ({
         analyses,
         timeline: Array.isArray(formValues.timeline) ? formValues.timeline : [],
         tags,
-        lastUpdated: formatDateInput(formValues.lastUpdated) || null,
+        lastUpdated: normalizedLastUpdated,
         date: formatDateInput(formValues.date) || null,
       });
     } catch (error) {
