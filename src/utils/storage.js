@@ -64,6 +64,32 @@ export const uploadAttachmentToObjectStore = async ({
   };
 };
 
+const normalizeObjectKeyCandidates = (objectKey, bucket) => {
+  const candidates = new Set();
+  const trimmed = (objectKey || '').replace(/^\/+/, '');
+
+  if (trimmed) {
+    candidates.add(trimmed);
+
+    if (bucket && trimmed.startsWith(`${bucket}/`)) {
+      candidates.add(trimmed.slice(bucket.length + 1));
+    }
+
+    try {
+      const decoded = decodeURIComponent(trimmed);
+      candidates.add(decoded);
+
+      if (bucket && decoded.startsWith(`${bucket}/`)) {
+        candidates.add(decoded.slice(bucket.length + 1));
+      }
+    } catch (_error) {
+      // ignore decode failures and fall back to original values
+    }
+  }
+
+  return Array.from(candidates).filter(Boolean);
+};
+
 export const fetchAttachmentFromObjectStore = async ({
   bucket,
   objectKey,
@@ -75,22 +101,42 @@ export const fetchAttachmentFromObjectStore = async ({
     throw new Error('An objectKey is required to download from object storage.');
   }
 
-  const downloadTarget = await createDownloadTarget({
-    bucket,
-    objectKey,
-    fileName,
-    contentType,
-  });
+  const candidates = normalizeObjectKeyCandidates(objectKey, bucket);
+  const errors = [];
 
-  const response = await fetch(downloadTarget.downloadUrl, { signal });
-  if (!response.ok) {
-    const message = `Object storage download failed with status ${response.status}`;
-    const error = new Error(message);
-    error.status = response.status;
-    throw error;
+  for (let i = 0; i < candidates.length; i += 1) {
+    const candidateKey = candidates[i];
+    try {
+      const downloadTarget = await createDownloadTarget({
+        bucket,
+        objectKey: candidateKey,
+        fileName,
+        contentType,
+      });
+
+      const response = await fetch(downloadTarget.downloadUrl, { signal });
+      if (!response.ok) {
+        const message = `Object storage download failed with status ${response.status}`;
+        const error = new Error(message);
+        error.status = response.status;
+        throw error;
+      }
+
+      return response.text();
+    } catch (error) {
+      errors.push(error);
+      if (signal?.aborted) {
+        break;
+      }
+    }
   }
 
-  return response.text();
+  const lastError = errors[errors.length - 1];
+  if (lastError) {
+    throw lastError;
+  }
+
+  throw new Error('Unable to download attachment from object storage.');
 };
 
 export default {
