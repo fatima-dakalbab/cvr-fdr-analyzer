@@ -2,9 +2,18 @@
 
 This document captures two high-level views of the CVR/FDR Analyzer platform: the relational data schema used by the backend service and the runtime interactions between major system modules.
 
+To export these diagrams as images with legible text, use the Mermaid CLI. The first command emits a standard-resolution PNG, while the second increases the canvas dimensions for presentations and reports:
+
+```bash
+npx -y @mermaid-js/mermaid-cli -i docs/system-diagrams.md -o docs/system-diagrams.png
+npx -y @mermaid-js/mermaid-cli -w 1800 -H 1200 -i docs/system-diagrams.md -o docs/system-diagrams@2x.png
+```
+
+
 ## Data Schema
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "16px", "fontFamily": "'Inter', 'Arial', sans-serif"}} }%%
 erDiagram
     USERS {
         SERIAL id PK "Primary key"
@@ -50,6 +59,8 @@ erDiagram
 
 ```mermaid
 flowchart LR
+%%{init: {"themeVariables": {"fontSize": "16px", "fontFamily": "'Inter', 'Arial', sans-serif"}, "flowchart": {"htmlLabels": true}} }%%
+flowchart TB
     subgraph Frontend [React Frontend]
         UI["Pages & Components<br/>src/pages, src/components"]
         Hooks["Custom Hooks<br/>src/hooks"]
@@ -75,10 +86,6 @@ flowchart LR
         MinIO["MinIO buckets<br/>for CVR/FDR data"]
     end
 
-    subgraph ObjectStorage ["Object Storage\\n(Future MinIO S3)"]
-        MinIO["MinIO buckets\\nfor CVR/FDR data"]
-    end
-
     UI --> Hooks
     Hooks --> APIClient
     APIClient -->|HTTP/JSON| Routes
@@ -98,4 +105,5 @@ flowchart LR
 ```
 
 The first diagram reflects the structure defined in [`server/db/schema.sql`](../server/db/schema.sql). The second diagram summarizes how React UI layers invoke the API client, which communicates with Express routes; those routes funnel requests through middleware into service modules that interact with shared utilities and the PostgreSQL tables via the database layer. The storage service node highlights the planned integration with a MinIO-backed S3 object store to hold CVR/FDR artifacts alongside relational case data.
+
 
