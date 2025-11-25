@@ -1,5 +1,9 @@
-import { createDownloadTarget, createUploadTarget } from '../api/storage';
-import { inferContentType } from './files';
+import {
+  createDownloadTarget,
+  createUploadTarget,
+  deleteObjectFromStorage,
+} from '../api/storage';
+import { calculateFileChecksum, inferContentType } from './files';
 
 const buildUploadHeaders = (responseHeaders = {}, fallbackContentType) => {
   const normalized = { ...responseHeaders };
@@ -19,6 +23,7 @@ export const uploadAttachmentToObjectStore = async ({
   attachmentType,
   file,
   signal,
+  existingAttachments = [],
 }) => {
   if (!file) {
     throw new Error('A file must be provided to upload to object storage.');
@@ -29,6 +34,33 @@ export const uploadAttachmentToObjectStore = async ({
   }
 
   const contentType = inferContentType(file);
+  const checksum = await calculateFileChecksum(file);
+
+  const hasDuplicate = existingAttachments.some((item) => {
+    if (!item || typeof item !== 'object') {
+      return false;
+    }
+
+    const existingChecksum = item.checksum || item.sha256 || item.hash;
+    if (existingChecksum && existingChecksum === checksum) {
+      return true;
+    }
+
+    const existingSize = Number(item.sizeBytes ?? item.size);
+    const matchesNameAndSize =
+      Number.isFinite(existingSize) &&
+      existingSize === file.size &&
+      typeof item.name === 'string' &&
+      item.name === file.name;
+
+    return matchesNameAndSize;
+  });
+
+  if (hasDuplicate) {
+    const error = new Error('This file appears to have already been uploaded for this case.');
+    error.code = 'DUPLICATE_ATTACHMENT';
+    throw error;
+  }
   const uploadTarget = await createUploadTarget({
     caseNumber,
     attachmentType,
@@ -61,6 +93,7 @@ export const uploadAttachmentToObjectStore = async ({
     },
     contentType,
     uploadedAt: new Date().toISOString(),
+    checksum,
   };
 };
 
@@ -139,7 +172,16 @@ export const fetchAttachmentFromObjectStore = async ({
   throw new Error('Unable to download attachment from object storage.');
 };
 
+export const deleteAttachmentFromObjectStore = async ({ bucket, objectKey }) => {
+  if (!objectKey) {
+    throw new Error('An objectKey is required to delete from object storage.');
+  }
+
+  await deleteObjectFromStorage({ bucket, objectKey });
+};
+
 export default {
   uploadAttachmentToObjectStore,
   fetchAttachmentFromObjectStore,
+  deleteAttachmentFromObjectStore,
 };

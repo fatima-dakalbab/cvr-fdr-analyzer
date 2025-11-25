@@ -14,7 +14,7 @@ import {
   Phone,
   Mail,
 } from 'lucide-react';
-import { fetchCaseByNumber } from '../api/cases';
+import { fetchCaseByNumber, updateCase } from '../api/cases';
 import { evaluateModuleReadiness } from '../utils/analysisAvailability';
 import {
   CASE_STATUS_CVR_ANALYZED,
@@ -26,6 +26,7 @@ import {
   CASE_STATUS_ANALYSIS_PAUSED,
   normalizeCaseRecord,
 } from '../utils/statuses';
+import { deleteAttachmentFromObjectStore } from '../utils/storage';
 
 const statusColors = {
   [CASE_STATUS_CVR_ANALYZED]: 'text-emerald-700 bg-emerald-100',
@@ -48,6 +49,8 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [analysisError, setAnalysisError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deletingKey, setDeletingKey] = useState('');
   const navigate = useNavigate();
   const { caseNumber: routeCaseNumber } = useParams();
   const caseNumber = propCaseNumber || routeCaseNumber;
@@ -66,6 +69,8 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
 
       setLoading(true);
       setError('');
+      setDeleteError('');
+      setDeletingKey('');
 
       try {
         const data = await fetchCaseByNumber(caseNumber);
@@ -101,7 +106,7 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
     navigate(`/cases/${caseNumber}/${moduleKey}`);
   };
 
-const handleUploadData = (moduleKey, missingTypes) => {
+  const handleUploadData = (moduleKey, missingTypes) => {
     if (!caseNumber) {
       return;
     }
@@ -130,6 +135,39 @@ const handleUploadData = (moduleKey, missingTypes) => {
         attemptedCase: caseNumber,
       },
     });
+  };
+
+  const handleDeleteAttachment = async (attachment) => {
+    const objectKey = attachment?.storage?.objectKey || attachment?.storage?.key;
+    if (!caseData || !objectKey) {
+      return;
+    }
+
+    setDeleteError('');
+    setDeletingKey(objectKey);
+
+    try {
+      await deleteAttachmentFromObjectStore({
+        bucket: attachment.storage?.bucket,
+        objectKey,
+      });
+
+      const nextAttachments = (caseData.attachments || []).filter((item) => {
+        const key = item?.storage?.objectKey || item?.storage?.key;
+        return key !== objectKey;
+      });
+
+      const updated = await updateCase(caseNumber, {
+        ...caseData,
+        attachments: nextAttachments,
+      });
+
+      setCaseData(normalizeCaseRecord(updated));
+    } catch (err) {
+      setDeleteError(err.message || 'Unable to delete attachment from storage.');
+    } finally {
+      setDeletingKey('');
+    }
   };
 
   const analysisCards = useMemo(() => {
@@ -404,6 +442,11 @@ const handleUploadData = (moduleKey, missingTypes) => {
           </div>
           <div className="bg-gray-50 rounded-xl p-5">
             <h2 className="text-lg font-semibold text-gray-800 mb-4">Attachments</h2>
+            {deleteError && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {deleteError}
+              </div>
+            )}
             {attachments.length === 0 ? (
               <p className="text-sm text-gray-500">No attachments have been uploaded.</p>
             ) : (
@@ -417,17 +460,33 @@ const handleUploadData = (moduleKey, missingTypes) => {
                   ]
                     .filter(Boolean)
                     .join(' • ');
+                  const objectKey = file?.storage?.objectKey || file?.storage?.key;
+                  const isDeleting = deletingKey === objectKey;
 
                   return (
-                    <li key={`${file.name}-${index}`} className="flex items-start gap-3">
-                      <FileText className="w-5 h-5 text-emerald-600 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-semibold text-gray-800">{file.name}</p>
-                        <p className="text-xs text-gray-500">{details || 'No additional metadata'}</p>
-                        {file.notes && (
-                          <p className="text-xs text-gray-500 mt-1">{file.notes}</p>
-                        )}
+                    <li key={`${file.name}-${index}`} className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+                      <div className="flex items-start gap-3">
+                        <FileText className="w-5 h-5 text-emerald-600 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-semibold text-gray-800">{file.name}</p>
+                          <p className="text-xs text-gray-500">{details || 'No additional metadata'}</p>
+                          {file.notes && (
+                            <p className="text-xs text-gray-500 mt-1">{file.notes}</p>
+                          )}
+                        </div>
                       </div>
+                      {objectKey && (
+                        <div className="flex gap-2 sm:ml-8">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAttachment(file)}
+                            disabled={isDeleting}
+                            className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-70"
+                          >
+                            {isDeleting ? 'Deleting…' : 'Delete from MinIO'}
+                          </button>
+                        </div>
+                      )}
                     </li>
                   );
                 })}

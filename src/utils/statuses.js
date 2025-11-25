@@ -70,3 +70,72 @@ export const normalizeCaseRecord = (caseRecord) => {
     status: normalizeCaseStatus(caseRecord.status),
   };
 };
+
+const normalize = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
+
+const attachmentHasData = (attachments = [], targetType) =>
+  attachments.some((attachment) => {
+    if (!attachment || typeof attachment !== 'object') {
+      return false;
+    }
+
+    const type = normalize(attachment.type);
+    if (type !== normalize(targetType)) {
+      return false;
+    }
+
+    const status = normalize(attachment.status);
+    if (status === 'pending') {
+      return false;
+    }
+
+    if (attachment.storage && (attachment.storage.objectKey || attachment.storage.key)) {
+      return true;
+    }
+
+    if (typeof attachment.sizeBytes === 'number' && attachment.sizeBytes > 0) {
+      return true;
+    }
+
+    return Boolean(attachment.name);
+  });
+
+const statusEquals = (status, values) => values.includes(normalize(status));
+
+const hasAnyStatus = (statuses = [], values = []) =>
+  statuses.some((status) => statusEquals(status, values));
+
+export const deriveCaseStatus = ({ attachments = [], analyses = {} } = {}) => {
+  const fdrStatus = normalize(analyses?.fdr?.status);
+  const cvrStatus = normalize(analyses?.cvr?.status);
+  const correlateStatus = normalize(analyses?.correlate?.status);
+
+  if (statusEquals(correlateStatus, ['correlate analyzed', 'correlation analyzed'])) {
+    return CASE_STATUS_CORRELATE_ANALYZED;
+  }
+
+  if (statusEquals(fdrStatus, ['fdr analyzed'])) {
+    return CASE_STATUS_FDR_ANALYZED;
+  }
+
+  if (statusEquals(cvrStatus, ['cvr analyzed'])) {
+    return CASE_STATUS_CVR_ANALYZED;
+  }
+
+  if (hasAnyStatus([fdrStatus, cvrStatus, correlateStatus], ['analysis paused', 'paused'])) {
+    return CASE_STATUS_ANALYSIS_PAUSED;
+  }
+
+  if (hasAnyStatus([fdrStatus, cvrStatus, correlateStatus], ['analysis in progress', 'analysis started', 'in progress'])) {
+    return CASE_STATUS_ANALYSIS_IN_PROGRESS;
+  }
+
+  const hasFdrData = attachmentHasData(attachments, 'FDR') || !statusEquals(fdrStatus, ['data not uploaded', 'not started']);
+  const hasCvrData = attachmentHasData(attachments, 'CVR') || !statusEquals(cvrStatus, ['data not uploaded', 'not started']);
+
+  if (hasFdrData && hasCvrData) {
+    return CASE_STATUS_READY_FOR_ANALYSIS;
+  }
+
+  return CASE_STATUS_DATA_REQUIRED;
+};
