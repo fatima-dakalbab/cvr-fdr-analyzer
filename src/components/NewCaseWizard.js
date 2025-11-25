@@ -2,10 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Check, UploadCloud, X } from 'lucide-react';
 import { formatFileSize } from '../utils/files';
 import { uploadAttachmentToObjectStore } from '../utils/storage';
-import {
-  CASE_STATUS_READY_FOR_ANALYSIS,
-  DEFAULT_CASE_STATUS,
-} from '../utils/statuses';
+import { CASE_STATUS_READY_FOR_ANALYSIS, deriveCaseStatus } from '../utils/statuses';
 
 const steps = [
   { title: 'Step 1', subtitle: 'Case Details' },
@@ -61,9 +58,6 @@ const determineModule = (hasFdrData, hasCvrData) => {
 
   return 'CVR & FDR';
 };
-
-const determineStatus = (hasFdrData, hasCvrData) =>
- hasFdrData && hasCvrData ? CASE_STATUS_READY_FOR_ANALYSIS : DEFAULT_CASE_STATUS;
 
 const buildAnalysesState = (hasFdrData, hasCvrData) => ({
   fdr: {
@@ -243,7 +237,6 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
     const hasCvrData = Boolean(cvrUpload.file && !cvrUpload.willUploadLater);
 
     const module = determineModule(hasFdrData, hasCvrData);
-    const status = determineStatus(hasFdrData, hasCvrData);
     const analyses = buildAnalysesState(hasFdrData, hasCvrData);
 
     const attachments = [];
@@ -284,6 +277,8 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
         status: 'Pending',
       });
     }
+
+    const status = deriveCaseStatus({ attachments, analyses });
 
     return {
       module,
@@ -391,6 +386,7 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
           caseNumber: caseInfo.caseNumber,
           attachmentType: label,
           file: uploadState.file,
+          existingAttachments: attachments,
         });
 
         attachments.push({
@@ -404,6 +400,7 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
           storage: result.storage,
           contentType: result.contentType,
           uploadedAt: result.uploadedAt,
+          checksum: result.checksum,
         });
 
         return true;

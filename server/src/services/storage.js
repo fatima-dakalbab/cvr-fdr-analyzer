@@ -7,6 +7,7 @@ const {
   HeadBucketCommand,
   CreateBucketCommand,
   HeadObjectCommand,
+  DeleteObjectCommand,
 } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const slugify = require('../utils/slugify');
@@ -362,6 +363,33 @@ async function createPresignedDownload({ bucket, objectKey, fileName, contentTyp
   };
 }
 
+async function deleteObject({ bucket, objectKey }) {
+  if (!objectKey) {
+    const error = new Error('objectKey is required to delete from object storage.');
+    error.status = 400;
+    throw error;
+  }
+
+  const config = getConfig();
+  const bucketName = (bucket || '').trim() || config.bucket;
+
+  try {
+    await s3.send(
+      new DeleteObjectCommand({
+        Bucket: bucketName,
+        Key: objectKey.replace(/^\/+/, ''),
+      }),
+    );
+  } catch (error) {
+    const status = error?.$metadata?.httpStatusCode;
+    if (status === 404 || status === 403) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
 async function objectExists({ bucket, objectKey }) {
   if (!objectKey) {
     return false;
@@ -395,4 +423,5 @@ module.exports = {
   createPresignedUpload,
   createPresignedDownload,
   objectExists,
+  deleteObject,
 };

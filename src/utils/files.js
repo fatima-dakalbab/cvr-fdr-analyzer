@@ -26,6 +26,21 @@ const EXTENSION_CONTENT_TYPES = {
   txt: 'text/plain',
 };
 
+const bufferToHex = (buffer) =>
+  Array.from(new Uint8Array(buffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+export const calculateFileChecksum = async (file) => {
+  if (!file || typeof file.arrayBuffer !== 'function' || !crypto?.subtle?.digest) {
+    throw new Error('Unable to calculate checksum for the selected file.');
+  }
+
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  return bufferToHex(hashBuffer);
+};
+
 export const inferContentType = (file) => {
   if (!file) {
     return 'application/octet-stream';
@@ -46,5 +61,6 @@ export const inferContentType = (file) => {
 
 export default {
   formatFileSize,
+  calculateFileChecksum,
   inferContentType,
 };

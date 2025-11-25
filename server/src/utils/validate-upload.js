@@ -70,7 +70,30 @@ const validateDownloadPayload = (payload = {}) => {
   };
 };
 
+const validateDeletePayload = (payload = {}) => {
+  const objectKey = sanitizeString(payload.objectKey);
+  const bucket = sanitizeString(payload.bucket);
+
+  const errors = [];
+
+  if (!objectKey) {
+    errors.push('objectKey is required.');
+  }
+
+  if (errors.length > 0) {
+    const error = new Error(errors.join(' '));
+    error.status = 400;
+    throw error;
+  }
+
+  return {
+    objectKey,
+    bucket,
+  };
+};
+
 module.exports = {
   validatePresignPayload,
   validateDownloadPayload,
+  validateDeletePayload,
 };

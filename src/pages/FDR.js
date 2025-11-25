@@ -279,33 +279,6 @@ const defaultParameterTableRows = [
     { parameter: "Vertical Speed", unit: "ft/min", min: -300, max: 200 },
 ];
 
-const phases = [
-    "All Phases",
-    "Pre-flight",
-    "Takeoff",
-    "Climb",
-    "Cruise",
-    "Descent",
-    "Approach",
-    "Landing",
-];
-
-const anomalyTypes = [
-    "All Anomaly Types",
-    "Exceedance",
-    "Deviation",
-    "System Fault",
-    "Parameter Drift",
-];
-
-const severityLevels = [
-    "All Severity Levels",
-    "Low",
-    "Moderate",
-    "High",
-    "Critical",
-];
-
 const detectionResultSummary = {
     anomaliesDetected: 3,
     overallReduction: 48,
@@ -615,11 +588,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         "Engine 1 N1",
     ]);
     const [selectedCase, setSelectedCase] = useState(null);
-    const [selectedPhase, setSelectedPhase] = useState(phases[0]);
-    const [selectedAnomalyType, setSelectedAnomalyType] = useState(
-        anomalyTypes[0]
-    );
-    const [selectedSeverity, setSelectedSeverity] = useState(severityLevels[0]);
     const [isRunningDetection, setIsRunningDetection] = useState(false);
     const [categorySamples, setCategorySamples] = useState(defaultCategorySamples);
     const [detectionTrendData, setDetectionTrendData] = useState(
@@ -908,6 +876,19 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     };
 
     const handleRunDetection = () => {
+        const detectionParameters =
+            selectedParameters.length > 0
+                ? selectedParameters
+                : availableParameters;
+
+        if (detectionParameters.length === 0) {
+            return;
+        }
+
+        if (selectedParameters.length === 0) {
+            setSelectedParameters(detectionParameters);
+        }
+
         setIsRunningDetection(true);
 
         // Placeholder for future machine learning integration.
@@ -1005,41 +986,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 </div>
             );
         });
-
-    const renderSelectField = (label, value, options, onChange) => (
-        <div className="space-y-2">
-            <label className="text-xs uppercase tracking-wide text-gray-500">
-                {label}
-            </label>
-            <div className="relative">
-                <select
-                    className="w-full appearance-none rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100"
-                    value={value}
-                    onChange={(event) => onChange(event.target.value)}
-                >
-                    {options.map((option) => (
-                        <option key={option}>{option}</option>
-                    ))}
-                </select>
-                <svg
-                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-emerald-600"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                >
-                    <path
-                        d="M5 7.5L10 12.5L15 7.5"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                    />
-                </svg>
-            </div>
-        </div>
-    );
 
     if (!isLinkedRoute && workflowStage === "caseSelection") {
         return (
@@ -1588,43 +1534,42 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 </section>
 
                 <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-5">
-                    <div>
-                        <h2 className="text-lg font-semibold text-gray-900">Anomaly Filter</h2>
+                    <div className="space-y-1">
+                        <h2 className="text-lg font-semibold text-gray-900">Anomaly Detection</h2>
                         <p className="text-sm text-gray-500">
-                            Define the criteria for anomaly detection before running the
-                            model.
+                            Run detection directly on the parameters you&apos;re charting. If no parameters are selected, all
+                            available recorder fields will be analyzed automatically.
                         </p>
                     </div>
 
-                    <div className="space-y-4">
-                        {renderSelectField("Phase of Flight", selectedPhase, phases, setSelectedPhase)}
-                        {renderSelectField(
-                            "Anomaly Type",
-                            selectedAnomalyType,
-                            anomalyTypes,
-                            setSelectedAnomalyType
-                        )}
-                        {renderSelectField(
-                            "Severity Level",
-                            selectedSeverity,
-                            severityLevels,
-                            setSelectedSeverity
-                        )}
+                    <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 space-y-2 text-sm text-gray-700">
+                        <p className="font-semibold text-gray-800">Parameters in scope</p>
+                        <p>
+                            {(
+                                selectedParameters.length > 0 ? selectedParameters : availableParameters
+                            ).length > 0
+                                ? (selectedParameters.length > 0 ? selectedParameters : availableParameters).join(", ")
+                                : "No numeric parameters were detected in the uploaded file."}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                            Charts only render the parameters you toggle on. Detection will always use the full set of parsed
+                            parameters so you don&apos;t have to choose thresholds first.
+                        </p>
                     </div>
 
                     <button
                         type="button"
                         onClick={handleRunDetection}
-                        disabled={isRunningDetection}
-                        className="w-full inline-flex justify-center items-center px-4 py-2 rounded-lg text-sm font-semibold text-white shadow-sm transition-colors"
+                        disabled={isRunningDetection || availableParameters.length === 0}
+                        className="w-full inline-flex justify-center items-center px-4 py-2 rounded-lg text-sm font-semibold text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70"
                         style={{ backgroundColor: "#019348" }}
                     >
                         {isRunningDetection ? "Running..." : "Run Anomaly Detection"}
                     </button>
 
                     <div className="text-xs text-gray-500 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-3">
-                        Machine learning output will populate anomaly summaries and
-                        visualizations once integrated with the detection pipeline.
+                        Machine learning output will populate anomaly summaries and visualizations once integrated with the
+                        detection pipeline.
                     </div>
                 </section>
             </div>

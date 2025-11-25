@@ -1,6 +1,7 @@
 const pool = require('../db/pool');
 const { mapToDbCase, mapFromDbCase } = require('../utils/case-mapper');
 const { objectExists } = require('./storage');
+const { deriveCaseStatus } = require('../utils/case-status');
 
 const resolveStorageTarget = (attachment) => {
   if (!attachment || typeof attachment !== 'object') {
@@ -115,8 +116,17 @@ const coerceJsonValue = (value, fallback) => {
 
 const toJsonbParameter = (value, fallback) => JSON.stringify(coerceJsonValue(value, fallback));
 
+const extractRows = (result) => {
+  if (!result || !Array.isArray(result.rows)) {
+    return [];
+  }
+
+  return result.rows;
+};
+
 const createCase = async (payload) => {
   const data = mapToDbCase(payload);
+  const derivedStatus = deriveCaseStatus(data);
 
   const query = `
     INSERT INTO cases (
@@ -151,7 +161,7 @@ const createCase = async (payload) => {
     data.case_number,
     toNullIfEmpty(data.case_name),
     toNullIfEmpty(data.module),
-    toNullIfEmpty(data.status),
+    toNullIfEmpty(derivedStatus),
     toNullIfEmpty(data.owner),
     toNullIfEmpty(data.organization),
     toNullIfEmpty(data.examiner),
@@ -178,6 +188,7 @@ const createCase = async (payload) => {
 
 const updateCase = async (caseNumber, payload) => {
   const data = mapToDbCase(payload);
+  const derivedStatus = deriveCaseStatus(data);
 
   const query = `
     UPDATE cases
@@ -206,7 +217,7 @@ const updateCase = async (caseNumber, payload) => {
   const values = [
     toNullIfEmpty(data.case_name),
     toNullIfEmpty(data.module),
-    toNullIfEmpty(data.status),
+    toNullIfEmpty(derivedStatus),
     toNullIfEmpty(data.owner),
     toNullIfEmpty(data.organization),
     toNullIfEmpty(data.examiner),
