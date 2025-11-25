@@ -1,7 +1,7 @@
 const pool = require('../db/pool');
 const { mapToDbCase, mapFromDbCase } = require('../utils/case-mapper');
 const { objectExists } = require('./storage');
-const { deriveCaseStatus } = require('../utils/case-status');
+const { deriveCaseStatus, deriveDataStatus } = require('../utils/case-status');
 
 const resolveStorageTarget = (attachment) => {
   if (!attachment || typeof attachment !== 'object') {
@@ -127,6 +127,7 @@ const extractRows = (result) => {
 const createCase = async (payload) => {
   const data = mapToDbCase(payload);
   const derivedStatus = deriveCaseStatus(data);
+  const derivedDataStatus = deriveDataStatus(data.attachments);
 
   const query = `
     INSERT INTO cases (
@@ -160,7 +161,7 @@ const createCase = async (payload) => {
   const values = [
     data.case_number,
     toNullIfEmpty(data.case_name),
-    toNullIfEmpty(data.module),
+    toNullIfEmpty(derivedDataStatus),
     toNullIfEmpty(derivedStatus),
     toNullIfEmpty(data.owner),
     toNullIfEmpty(data.organization),
@@ -189,6 +190,7 @@ const createCase = async (payload) => {
 const updateCase = async (caseNumber, payload) => {
   const data = mapToDbCase(payload);
   const derivedStatus = deriveCaseStatus(data);
+  const derivedDataStatus = deriveDataStatus(data.attachments);
 
   const query = `
     UPDATE cases
@@ -216,7 +218,7 @@ const updateCase = async (caseNumber, payload) => {
 
   const values = [
     toNullIfEmpty(data.case_name),
-    toNullIfEmpty(data.module),
+    toNullIfEmpty(derivedDataStatus),
     toNullIfEmpty(derivedStatus),
     toNullIfEmpty(data.owner),
     toNullIfEmpty(data.organization),

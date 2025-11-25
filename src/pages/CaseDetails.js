@@ -16,26 +16,13 @@ import {
 } from 'lucide-react';
 import { fetchCaseByNumber, updateCase } from '../api/cases';
 import { evaluateModuleReadiness } from '../utils/analysisAvailability';
-import {
-  CASE_STATUS_CVR_ANALYZED,
-  CASE_STATUS_FDR_ANALYZED,
-  CASE_STATUS_CORRELATE_ANALYZED,
-  CASE_STATUS_READY_FOR_ANALYSIS,
-  CASE_STATUS_DATA_REQUIRED,
-  CASE_STATUS_ANALYSIS_IN_PROGRESS,
-  CASE_STATUS_ANALYSIS_PAUSED,
-  normalizeCaseRecord,
-} from '../utils/statuses';
+import { CASE_STATUS_COMPLETED, CASE_STATUS_STARTED, CASE_STATUS_NOT_STARTED, normalizeCaseRecord } from '../utils/statuses';
 import { deleteAttachmentFromObjectStore } from '../utils/storage';
 
 const statusColors = {
-  [CASE_STATUS_CVR_ANALYZED]: 'text-emerald-700 bg-emerald-100',
-  [CASE_STATUS_FDR_ANALYZED]: 'text-emerald-700 bg-emerald-100',
-  [CASE_STATUS_CORRELATE_ANALYZED]: 'text-emerald-700 bg-emerald-100',
-  [CASE_STATUS_READY_FOR_ANALYSIS]: 'text-sky-700 bg-sky-100',
-  [CASE_STATUS_DATA_REQUIRED]: 'text-rose-700 bg-rose-100',
-  [CASE_STATUS_ANALYSIS_IN_PROGRESS]: 'text-amber-700 bg-amber-100',
-  [CASE_STATUS_ANALYSIS_PAUSED]: 'text-gray-700 bg-gray-100',
+  [CASE_STATUS_COMPLETED]: 'text-emerald-700 bg-emerald-100',
+  [CASE_STATUS_STARTED]: 'text-amber-700 bg-amber-100',
+  [CASE_STATUS_NOT_STARTED]: 'text-gray-700 bg-gray-100',
 };
 
 const analysisIcon = {

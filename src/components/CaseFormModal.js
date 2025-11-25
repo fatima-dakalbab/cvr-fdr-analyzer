@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { formatFileSize } from '../utils/files';
-import { deriveCaseStatus } from '../utils/statuses';
+import { deriveCaseStatus, deriveDataStatus } from '../utils/statuses';
 import { uploadAttachmentToObjectStore } from '../utils/storage';
 
 const DEFAULT_ANALYSES = {
@@ -8,8 +8,6 @@ const DEFAULT_ANALYSES = {
   cvr: { status: 'Not Started', lastRun: null, summary: '' },
   correlate: { status: 'Not Started', lastRun: null, summary: '' },
 };
-
-const modules = ['CVR', 'FDR', 'Correlation'];
 
 const FDR_EXTENSIONS = ['.csv', '.xls', '.xlsx'];
 const CVR_EXTENSIONS = ['.wav', '.mp3'];
@@ -30,7 +28,7 @@ const formatDateInput = (value) => {
 const createDefaultValues = () => ({
   caseNumber: '',
   caseName: '',
-  module: 'CVR & FDR',
+  module: 'No Data Uploaded',
   status: deriveCaseStatus(),
   owner: '',
   organization: '',
@@ -146,7 +144,8 @@ const CaseFormModal = ({
         },
         attachments,
         analyses: mergedAnalyses,
-        status: deriveCaseStatus({ attachments, analyses: mergedAnalyses }),
+        status: deriveCaseStatus({ analyses: mergedAnalyses }),
+        module: deriveDataStatus(attachments),
         timeline: Array.isArray(initialValues?.timeline) ? initialValues.timeline : [],
       });
     }
@@ -424,7 +423,8 @@ const CaseFormModal = ({
       } = await buildAttachments(investigatorName);
       const analyses = updateAnalyses(hasFdrData, hasCvrData);
       const uploadedNow = fdrUploadedNow || cvrUploadedNow;
-      const derivedStatus = deriveCaseStatus({ attachments, analyses });
+      const derivedStatus = deriveCaseStatus({ analyses });
+      const derivedDataStatus = deriveDataStatus(attachments);
       const currentDate = new Date().toISOString().slice(0, 10);
       const normalizedLastUpdated = uploadedNow
         ? currentDate
@@ -434,6 +434,7 @@ const CaseFormModal = ({
         ...prev,
         status: derivedStatus,
         lastUpdated: uploadedNow ? currentDate : prev.lastUpdated,
+        module: derivedDataStatus,
       }));
       const sanitizedUploads = {
         fdr: {
@@ -481,6 +482,7 @@ const CaseFormModal = ({
       await onSubmit({
         ...formValues,
         status: derivedStatus,
+        module: derivedDataStatus,
         uploads: sanitizedUploads,
         owner: ownerValue,
         examiner: formValues.examiner || investigatorName,
@@ -869,31 +871,22 @@ const CaseFormModal = ({
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold text-gray-800">Case Settings</h3>
+            <h3 className="text-lg font-semibold text-gray-800">Case Status</h3>
             <p className="text-sm text-gray-500 mb-4">
-              Choose the appropriate module. Case status updates automatically based on uploaded data
-              and analysis progress.
+              Data upload and analysis indicators update automatically based on your attachments and
+              analysis runs.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
-                Module
-                <select
-                  name="module"
-                  value={formValues.module}
-                  onChange={handleChange}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  {modules.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <div className="text-sm font-medium text-gray-700 flex flex-col gap-2">
-                Status (automatic)
+                Data uploaded
                 <span className="inline-flex items-center px-3 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-200">
-                  {formValues.status || 'Data Required'}
+                  {formValues.module || 'No Data Uploaded'}
+                </span>
+              </div>
+              <div className="text-sm font-medium text-gray-700 flex flex-col gap-2">
+                Analysis status (automatic)
+                <span className="inline-flex items-center px-3 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-200">
+                  {formValues.status || 'Analysis Not Started'}
                 </span>
               </div>
             </div>

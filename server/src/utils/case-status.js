@@ -32,40 +32,50 @@ const statusEquals = (status, values) => values.includes(normalize(status));
 const hasAnyStatus = (statuses = [], values = []) =>
   statuses.some((status) => statusEquals(status, values));
 
-const deriveCaseStatus = ({ attachments = [], analyses = {} } = {}) => {
+const deriveDataStatus = (attachments = []) => {
+  const hasFdrData = attachmentHasData(attachments, 'FDR');
+  const hasCvrData = attachmentHasData(attachments, 'CVR');
+
+  if (hasFdrData && hasCvrData) {
+    return 'All Data Uploaded';
+  }
+
+  if (hasFdrData) {
+    return 'FDR Uploaded';
+  }
+
+  if (hasCvrData) {
+    return 'CVR Uploaded';
+  }
+
+  return 'No Data Uploaded';
+};
+
+const deriveCaseStatus = ({ analyses = {} } = {}) => {
   const fdrStatus = normalize(analyses?.fdr?.status);
   const cvrStatus = normalize(analyses?.cvr?.status);
   const correlateStatus = normalize(analyses?.correlate?.status);
 
-  if (statusEquals(correlateStatus, ['correlate analyzed', 'correlation analyzed'])) {
-    return 'Correlate Analyzed';
+  if (
+    hasAnyStatus(
+      [fdrStatus, cvrStatus, correlateStatus],
+      ['completed', 'complete', 'analyzed', 'finished', 'correlate analyzed', 'correlation analyzed'],
+    )
+  ) {
+    return 'Analysis Completed';
   }
 
-  if (statusEquals(fdrStatus, ['fdr analyzed'])) {
-    return 'FDR Analyzed';
+  if (
+    hasAnyStatus(
+      [fdrStatus, cvrStatus, correlateStatus],
+      ['analysis in progress', 'analysis started', 'in progress', 'running', 'started', 'analysis paused', 'paused'],
+    )
+  ) {
+    return 'Analysis Started';
   }
 
-  if (statusEquals(cvrStatus, ['cvr analyzed'])) {
-    return 'CVR Analyzed';
-  }
-
-  if (hasAnyStatus([fdrStatus, cvrStatus, correlateStatus], ['analysis paused', 'paused'])) {
-    return 'Analysis Paused';
-  }
-
-  if (hasAnyStatus([fdrStatus, cvrStatus, correlateStatus], ['analysis in progress', 'analysis started', 'in progress'])) {
-    return 'Analysis In Progress';
-  }
-
-  const hasFdrData = attachmentHasData(attachments, 'FDR') || !statusEquals(fdrStatus, ['data not uploaded', 'not started']);
-  const hasCvrData = attachmentHasData(attachments, 'CVR') || !statusEquals(cvrStatus, ['data not uploaded', 'not started']);
-
-  if (hasFdrData && hasCvrData) {
-    return 'Ready for Analysis';
-  }
-
-  return 'Data Required';
+  return 'Analysis Not Started';
 };
 
-module.exports = { deriveCaseStatus };
+module.exports = { deriveCaseStatus, deriveDataStatus };
 

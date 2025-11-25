@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Check, UploadCloud, X } from 'lucide-react';
 import { formatFileSize } from '../utils/files';
 import { uploadAttachmentToObjectStore } from '../utils/storage';
-import { CASE_STATUS_READY_FOR_ANALYSIS, deriveCaseStatus } from '../utils/statuses';
+import { deriveCaseStatus, deriveDataStatus, CASE_STATUS_NOT_STARTED } from '../utils/statuses';
 
 const steps = [
   { title: 'Step 1', subtitle: 'Case Details' },
@@ -43,35 +43,19 @@ const initialUploadState = {
   willUploadLater: true,
 };
 
-const determineModule = (hasFdrData, hasCvrData) => {
-  if (hasFdrData && hasCvrData) {
-    return 'CVR & FDR';
-  }
-
-  if (hasFdrData) {
-    return 'FDR';
-  }
-
-  if (hasCvrData) {
-    return 'CVR';
-  }
-
-  return 'CVR & FDR';
-};
-
 const buildAnalysesState = (hasFdrData, hasCvrData) => ({
   fdr: {
-    status: hasFdrData ? CASE_STATUS_READY_FOR_ANALYSIS : 'Data Not Uploaded',
+    status: hasFdrData ? CASE_STATUS_NOT_STARTED : 'Data Not Uploaded',
     lastRun: null,
     summary: hasFdrData ? 'FDR data uploaded and ready for analysis.' : 'Upload required before analysis can begin.',
   },
   cvr: {
-    status: hasCvrData ? CASE_STATUS_READY_FOR_ANALYSIS : 'Data Not Uploaded',
+    status: hasCvrData ? CASE_STATUS_NOT_STARTED : 'Data Not Uploaded',
     lastRun: null,
     summary: hasCvrData ? 'CVR data uploaded and ready for analysis.' : 'Upload required before analysis can begin.',
   },
   correlate: {
-    status: hasFdrData && hasCvrData ? 'Not Started' : 'Blocked',
+    status: hasFdrData && hasCvrData ? CASE_STATUS_NOT_STARTED : 'Blocked',
     lastRun: null,
     summary:
       hasFdrData && hasCvrData
@@ -236,7 +220,6 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
     const hasFdrData = Boolean(fdrUpload.file && !fdrUpload.willUploadLater);
     const hasCvrData = Boolean(cvrUpload.file && !cvrUpload.willUploadLater);
 
-    const module = determineModule(hasFdrData, hasCvrData);
     const analyses = buildAnalysesState(hasFdrData, hasCvrData);
 
     const attachments = [];
@@ -278,7 +261,8 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
       });
     }
 
-    const status = deriveCaseStatus({ attachments, analyses });
+    const status = deriveCaseStatus({ analyses });
+    const module = deriveDataStatus(attachments);
 
     return {
       module,
@@ -427,9 +411,9 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
       const hasFdrData = await processUpload(fdrUpload, 'FDR');
       const hasCvrData = await processUpload(cvrUpload, 'CVR');
 
-      const module = determineModule(hasFdrData, hasCvrData);
-      const status = determineStatus(hasFdrData, hasCvrData);
       const analyses = buildAnalysesState(hasFdrData, hasCvrData);
+      const module = deriveDataStatus(attachments);
+      const status = deriveCaseStatus({ analyses });
 
       const payload = buildPayload({ attachments, analyses, module, status });
 
@@ -660,7 +644,7 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
           <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
             <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Overall Status</p>
             <p className="mt-2 text-lg font-semibold text-emerald-900">{status}</p>
-            <p className="mt-1 text-sm text-emerald-700">Module coverage: {module}</p>
+            <p className="mt-1 text-sm text-emerald-700">Data uploaded: {module}</p>
           </div>
           <div className="rounded-xl border border-gray-200 p-4">
             <p className="text-sm font-semibold text-gray-800">FDR</p>
