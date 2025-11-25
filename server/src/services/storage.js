@@ -340,10 +340,12 @@ async function createPresignedDownload({ bucket, objectKey, fileName, contentTyp
   const config = getConfig();
   const bucketName = (bucket || '').trim() || config.bucket;
   const safeFileName = (fileName || 'attachment').replace(/"/g, '');
+  const trimmedKey = (objectKey || '').replace(/^\/+/, '');
+  const normalizedKey = trimmedKey.startsWith(`${bucketName}/`) ? trimmedKey.slice(bucketName.length + 1) : trimmedKey;
 
   const get = new GetObjectCommand({
     Bucket: bucketName,
-    Key: objectKey,
+    Key: normalizedKey,
     ResponseContentDisposition: `attachment; filename="${safeFileName}"`,
     ...(contentType ? { ResponseContentType: contentType } : {}),
   });
