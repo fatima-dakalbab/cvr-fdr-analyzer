@@ -336,6 +336,30 @@ const get = new GetObjectCommand({
   };
 }
 
+async function createPresignedDownload({ bucket, objectKey, fileName, contentType }) {
+  const config = getConfig();
+  const bucketName = (bucket || '').trim() || config.bucket;
+  const safeFileName = (fileName || 'attachment').replace(/"/g, '');
+
+  const get = new GetObjectCommand({
+    Bucket: bucketName,
+    Key: objectKey,
+    ResponseContentDisposition: `attachment; filename="${safeFileName}"`,
+    ...(contentType ? { ResponseContentType: contentType } : {}),
+  });
+
+  const downloadUrl = await getSignedUrl(s3, get, { expiresIn: config.downloadExpiry });
+
+  return {
+    method: 'GET',
+    bucket: bucketName,
+    objectKey,
+    downloadUrl,
+    expiresIn: config.downloadExpiry,
+    storageEndpoint: config.publicBaseUrl,
+  };
+}
+
 async function objectExists({ bucket, objectKey }) {
   if (!objectKey) {
     return false;
@@ -367,5 +391,6 @@ async function objectExists({ bucket, objectKey }) {
 module.exports = {
   initializeStorage,
   createPresignedUpload,
+  createPresignedDownload,
   objectExists,
 };

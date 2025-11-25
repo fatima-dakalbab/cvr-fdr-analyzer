@@ -1,4 +1,4 @@
-import { createUploadTarget } from '../api/storage';
+import { createDownloadTarget, createUploadTarget } from '../api/storage';
 import { inferContentType } from './files';
 
 const buildUploadHeaders = (responseHeaders = {}, fallbackContentType) => {
@@ -64,6 +64,36 @@ export const uploadAttachmentToObjectStore = async ({
   };
 };
 
+export const fetchAttachmentFromObjectStore = async ({
+  bucket,
+  objectKey,
+  fileName,
+  contentType,
+  signal,
+}) => {
+  if (!objectKey) {
+    throw new Error('An objectKey is required to download from object storage.');
+  }
+
+  const downloadTarget = await createDownloadTarget({
+    bucket,
+    objectKey,
+    fileName,
+    contentType,
+  });
+
+  const response = await fetch(downloadTarget.downloadUrl, { signal });
+  if (!response.ok) {
+    const message = `Object storage download failed with status ${response.status}`;
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+
+  return response.text();
+};
+
 export default {
   uploadAttachmentToObjectStore,
+  fetchAttachmentFromObjectStore,
 };

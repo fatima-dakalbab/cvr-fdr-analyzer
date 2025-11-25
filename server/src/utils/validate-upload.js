@@ -40,6 +40,37 @@ const validatePresignPayload = (payload = {}) => {
   };
 };
 
+const validateDownloadPayload = (payload = {}) => {
+  const objectKey = sanitizeString(payload.objectKey);
+  const bucket = sanitizeString(payload.bucket);
+  const fileName = sanitizeString(payload.fileName);
+  const contentType = sanitizeString(payload.contentType);
+
+  const errors = [];
+
+  if (!objectKey) {
+    errors.push('objectKey is required.');
+  }
+
+  if (contentType && contentType.length > 120) {
+    errors.push('contentType must be 120 characters or fewer.');
+  }
+
+  if (errors.length > 0) {
+    const error = new Error(errors.join(' '));
+    error.status = 400;
+    throw error;
+  }
+
+  return {
+    objectKey,
+    bucket,
+    fileName,
+    contentType,
+  };
+};
+
 module.exports = {
   validatePresignPayload,
+  validateDownloadPayload,
 };

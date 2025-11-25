@@ -15,6 +15,7 @@ import { fetchCaseByNumber } from "../api/cases";
 import useRecentCases from "../hooks/useRecentCases";
 import { buildCasePreview } from "../utils/caseDisplay";
 import { evaluateModuleReadiness } from "../utils/analysisAvailability";
+import { fetchAttachmentFromObjectStore } from "../utils/storage";
 
 const defaultCaseOptions = [
     {
@@ -237,7 +238,7 @@ const flightControlsSamples = [
     },
 ];
 
-const detectionTrendSamples = [
+const defaultDetectionTrendSamples = [
     { time: "00:00", altitude: 1200, speed: 145, engine: 68 },
     { time: "00:10", altitude: 1800, speed: 152, engine: 70 },
     { time: "00:20", altitude: 2400, speed: 160, engine: 72 },
@@ -263,18 +264,19 @@ const parameterConfig = {
     "Elevator Position": { key: "elevatorPosition", color: "#3b82f6" },
 };
 
-const categorySamples = {
+const defaultCategorySamples = {
     "Flight Dynamics": flightDynamicsSamples,
     Engines: engineSamples,
     "Flight Controls": flightControlsSamples,
 };
 
-const parameterTableRows = [
+const defaultParameterTableRows = [
     { parameter: "Altitude", unit: "ft", min: 1200, max: 4000 },
     { parameter: "Airspeed", unit: "kts", min: 145, max: 182 },
     { parameter: "Pitch Angle", unit: "deg", min: -2.1, max: 4.5 },
     { parameter: "Engine 1 N1", unit: "%", min: 62, max: 80 },
     { parameter: "Engine 2 N1", unit: "%", min: 61, max: 79 },
+    { parameter: "Vertical Speed", unit: "ft/min", min: -300, max: 200 },
 ];
 
 const phases = [
@@ -320,6 +322,289 @@ const detectionResultSummary = {
     ],
 };
 
+const parameterTableDefinitions = [
+    { parameter: "Altitude", unit: "ft", field: "altitude" },
+    { parameter: "Airspeed", unit: "kts", field: "airspeed" },
+    { parameter: "Pitch Angle", unit: "deg", field: "pitch" },
+    { parameter: "Engine 1 N1", unit: "%", field: "engine1N1" },
+    { parameter: "Engine 2 N1", unit: "%", field: "engine2N1" },
+    { parameter: "Vertical Speed", unit: "ft/min", field: "verticalSpeed" },
+];
+
+const defaultAvailableParameters = parameterGroups
+    .map((group) => group.parameters)
+    .flat();
+
+const CSV_COLUMN_MAP = {
+    altitude: ["GPS Altitude (feet)", "Pressure Altitude (ft)"],
+    airspeed: [
+        "Indicated Airspeed (knots)",
+        "Ground Speed (knots)",
+        "True Airspeed (knots)",
+    ],
+    pitch: ["Pitch (deg)"],
+    roll: ["Roll (deg)"],
+    heading: ["Magnetic Heading (deg)", "Ground Track (deg)"],
+    engine1N1: ["RPM L"],
+    engine2N1: ["RPM R"],
+    engine1EGT: ["EGT 1 (deg C)"],
+    engine2EGT: ["EGT 2 (deg C)"],
+    flapPosition: ["Glideslope (%)"],
+    spoilerDeployment: ["CDI Deflection (%)"],
+    rudderPosition: ["Turn Rate (deg/s)"],
+    elevatorPosition: ["Angle of Attack (%)"],
+    verticalSpeed: ["Vertical Speed (ft/min)"],
+};
+
+const PARAMETER_FIELD_MAP = {
+    Altitude: "altitude",
+    Airspeed: "airspeed",
+    "Pitch Angle": "pitch",
+    "Roll Angle": "roll",
+    Heading: "heading",
+    "Engine 1 N1": "engine1N1",
+    "Engine 1 EGT": "engine1EGT",
+    "Engine 2 N1": "engine2N1",
+    "Engine 2 EGT": "engine2EGT",
+    "Flap Position": "flapPosition",
+    "Spoiler Deployment": "spoilerDeployment",
+    "Rudder Position": "rudderPosition",
+    "Elevator Position": "elevatorPosition",
+    "Vertical Speed": "verticalSpeed",
+};
+
+const toNumber = (value) => {
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    const numeric = Number.parseFloat(String(value).replace(/[^0-9.-]+/g, ""));
+    return Number.isNaN(numeric) ? null : numeric;
+};
+
+const pickNumeric = (row, columnNames = []) => {
+    for (const column of columnNames) {
+        const value = toNumber(row[column]);
+        if (value !== null) {
+            return value;
+        }
+    }
+
+    return null;
+};
+
+const splitCsvLine = (line = "") => {
+    const cells = [];
+    let current = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i += 1) {
+        const char = line[i];
+
+        if (char === "\"") {
+            inQuotes = !inQuotes;
+            continue;
+        }
+
+        if (char === "," && !inQuotes) {
+            cells.push(current.trim());
+            current = "";
+            continue;
+        }
+
+        current += char;
+    }
+
+    cells.push(current.trim());
+    return cells;
+};
+
+const parseCsvRows = (text) => {
+    if (!text) {
+        return [];
+    }
+
+    const lines = text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+    if (lines.length < 2) {
+        return [];
+    }
+
+    const headers = splitCsvLine(lines[0]);
+    return lines.slice(1).map((line) => {
+        const cells = splitCsvLine(line);
+        const row = {};
+
+        headers.forEach((header, index) => {
+            row[header] = cells[index] || "";
+        });
+
+        return row;
+    });
+};
+
+const formatSessionTime = (value) => {
+    if (value === null || value === undefined) {
+        return "";
+    }
+
+    const seconds = Math.max(0, Math.floor(value));
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+
+    return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
+const resolveTimeLabel = (row, index) => {
+    const systemTime = row["System Time"] || row["GPS Date & Time"];
+    if (systemTime) {
+        return systemTime;
+    }
+
+    const sessionSeconds = pickNumeric(row, ["Session Time"]);
+    if (sessionSeconds !== null) {
+        return formatSessionTime(sessionSeconds);
+    }
+
+    return `T+${index}s`;
+};
+
+const normalizeFdrRows = (csvText) => {
+    const rawRows = parseCsvRows(csvText);
+
+    return rawRows.map((row, index) => {
+        const normalized = { time: resolveTimeLabel(row, index) };
+
+        Object.entries(CSV_COLUMN_MAP).forEach(([key, columnNames]) => {
+            const value = pickNumeric(row, columnNames);
+            if (value !== null) {
+                normalized[key] = value;
+            }
+        });
+
+        return normalized;
+    });
+};
+
+const hasNumericValue = (row, keys) =>
+    keys.some((key) => typeof row[key] === "number" && !Number.isNaN(row[key]));
+
+const truncateSeries = (series, maxPoints = 500) =>
+    series.length > maxPoints ? series.slice(0, maxPoints) : series;
+
+const buildCategorySamplesFromRows = (rows) => {
+    const flightDynamics = truncateSeries(
+        rows
+            .map(({ time, altitude, airspeed, pitch, roll, heading }) => ({
+                time,
+                altitude,
+                airspeed,
+                pitch,
+                roll,
+                heading,
+            }))
+            .filter((row) => row.time && hasNumericValue(row, ["altitude", "airspeed", "pitch", "roll", "heading"])),
+        400
+    );
+
+    const engines = truncateSeries(
+        rows
+            .map(({ time, engine1N1, engine2N1, engine1EGT, engine2EGT }) => ({
+                time,
+                engine1N1,
+                engine2N1,
+                engine1EGT,
+                engine2EGT,
+            }))
+            .filter((row) => row.time && hasNumericValue(row, ["engine1N1", "engine2N1", "engine1EGT", "engine2EGT"])),
+        400
+    );
+
+    const flightControls = truncateSeries(
+        rows
+            .map(({ time, flapPosition, spoilerDeployment, rudderPosition, elevatorPosition }) => ({
+                time,
+                flapPosition,
+                spoilerDeployment,
+                rudderPosition,
+                elevatorPosition,
+            }))
+            .filter((row) =>
+                row.time &&
+                hasNumericValue(row, [
+                    "flapPosition",
+                    "spoilerDeployment",
+                    "rudderPosition",
+                    "elevatorPosition",
+                ])
+            ),
+        400
+    );
+
+    return {
+        "Flight Dynamics": flightDynamics,
+        Engines: engines,
+        "Flight Controls": flightControls,
+    };
+};
+
+const deriveAvailableParameters = (rows) => {
+    const available = new Set();
+
+    Object.entries(PARAMETER_FIELD_MAP).forEach(([label, field]) => {
+        if (rows.some((row) => hasNumericValue(row, [field]))) {
+            available.add(label);
+        }
+    });
+
+    return available;
+};
+
+const buildParameterTable = (rows) =>
+    parameterTableDefinitions
+        .map((definition) => {
+            const values = rows
+                .map((row) => row[definition.field])
+                .filter((value) => typeof value === "number" && !Number.isNaN(value));
+
+            if (values.length === 0) {
+                return null;
+            }
+
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+
+            return {
+                parameter: definition.parameter,
+                unit: definition.unit,
+                min: Number(min.toFixed(1)),
+                max: Number(max.toFixed(1)),
+            };
+        })
+        .filter(Boolean);
+
+const buildDetectionTrendSeries = (rows) =>
+    truncateSeries(
+        rows
+            .filter((row) =>
+                row.time &&
+                (row.altitude !== undefined ||
+                    row.airspeed !== undefined ||
+                    row.engine1N1 !== undefined ||
+                    row.engine2N1 !== undefined)
+            )
+            .map((row) => ({
+                time: row.time,
+                altitude: row.altitude ?? null,
+                speed: row.airspeed ?? null,
+                engine: row.engine1N1 ?? row.engine2N1 ?? null,
+            })),
+        240
+    );
+
 export default function FDR({ caseNumber: propCaseNumber }) {
     const { caseNumber: routeCaseNumber } = useParams();
     const caseNumber = propCaseNumber || routeCaseNumber;
@@ -336,9 +621,25 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     );
     const [selectedSeverity, setSelectedSeverity] = useState(severityLevels[0]);
     const [isRunningDetection, setIsRunningDetection] = useState(false);
+    const [categorySamples, setCategorySamples] = useState(defaultCategorySamples);
+    const [detectionTrendData, setDetectionTrendData] = useState(
+        defaultDetectionTrendSamples
+    );
+    const [parameterTableRows, setParameterTableRows] = useState(
+        defaultParameterTableRows
+    );
+    const [availableParameters, setAvailableParameters] = useState(
+        defaultAvailableParameters
+    );
+    const [isLoadingFdrData, setIsLoadingFdrData] = useState(false);
+    const [fdrDataError, setFdrDataError] = useState("");
     const isLinkedRoute = Boolean(caseNumber);
     const [workflowStage, setWorkflowStage] = useState(
         isLinkedRoute ? "analysis" : "caseSelection"
+    );
+    const availableParameterSet = useMemo(
+        () => new Set(availableParameters || []),
+        [availableParameters]
     );
     const { recentCases, loading: isRecentLoading, error: recentCasesError } =
         useRecentCases(3);
@@ -411,11 +712,153 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         };
     }, [caseNumber, navigate, selectedCase, isLinkedRoute]);
 
+    useEffect(() => {
+        const caseData = selectedCase?.source;
+
+        if (!caseData) {
+            setCategorySamples(defaultCategorySamples);
+            setDetectionTrendData(defaultDetectionTrendSamples);
+            setParameterTableRows(defaultParameterTableRows);
+            setAvailableParameters(defaultAvailableParameters);
+            setFdrDataError("");
+            setIsLoadingFdrData(false);
+            return;
+        }
+
+        const attachments = Array.isArray(caseData.attachments)
+            ? caseData.attachments
+            : [];
+
+        const fdrAttachment = attachments.find((item) => {
+            const type = (item?.type || "").toUpperCase();
+            const status = (item?.status || "").toLowerCase();
+            const name = (item?.name || "").toLowerCase();
+            const storageKey = item?.storage?.objectKey || item?.storage?.key;
+
+            return (
+                Boolean(storageKey) &&
+                status !== "pending" &&
+                !name.includes("pending upload") &&
+                (type === "FDR" || name.endsWith(".csv") || name.includes("fdr"))
+            );
+        });
+
+        if (!fdrAttachment) {
+            setCategorySamples(defaultCategorySamples);
+            setDetectionTrendData(defaultDetectionTrendSamples);
+            setParameterTableRows(defaultParameterTableRows);
+            setAvailableParameters([]);
+            setFdrDataError("The selected case does not include an uploaded FDR file.");
+            setIsLoadingFdrData(false);
+            return;
+        }
+
+        const controller = new AbortController();
+        setIsLoadingFdrData(true);
+        setFdrDataError("");
+
+        fetchAttachmentFromObjectStore({
+            bucket: fdrAttachment.storage?.bucket,
+            objectKey: fdrAttachment.storage?.objectKey || fdrAttachment.storage?.key,
+            fileName: fdrAttachment.name,
+            contentType: fdrAttachment.contentType,
+            signal: controller.signal,
+        })
+            .then((text) => {
+                if (controller.signal.aborted) {
+                    return;
+                }
+
+                const rows = normalizeFdrRows(text);
+                if (rows.length === 0) {
+                    throw new Error(
+                        "The FDR file was downloaded but contained no readable rows."
+                    );
+                }
+
+                const derivedCategories = buildCategorySamplesFromRows(rows);
+                const availability = deriveAvailableParameters(rows);
+                const parameterTable = buildParameterTable(rows);
+                const trends = buildDetectionTrendSeries(rows);
+
+                setCategorySamples({
+                    "Flight Dynamics":
+                        derivedCategories["Flight Dynamics"]?.length > 0
+                            ? derivedCategories["Flight Dynamics"]
+                            : defaultCategorySamples["Flight Dynamics"],
+                    Engines:
+                        derivedCategories.Engines?.length > 0
+                            ? derivedCategories.Engines
+                            : defaultCategorySamples.Engines,
+                    "Flight Controls":
+                        derivedCategories["Flight Controls"]?.length > 0
+                            ? derivedCategories["Flight Controls"]
+                            : defaultCategorySamples["Flight Controls"],
+                });
+
+                setDetectionTrendData(
+                    trends.length > 0 ? trends : defaultDetectionTrendSamples
+                );
+
+                setParameterTableRows(
+                    parameterTable.length > 0
+                        ? parameterTable
+                        : defaultParameterTableRows
+                );
+
+                setAvailableParameters(
+                    availability.size > 0
+                        ? Array.from(availability)
+                        : defaultAvailableParameters
+                );
+                setFdrDataError("");
+            })
+            .catch((error) => {
+                if (controller.signal.aborted) {
+                    return;
+                }
+
+                setCategorySamples(defaultCategorySamples);
+                setDetectionTrendData(defaultDetectionTrendSamples);
+                setParameterTableRows(defaultParameterTableRows);
+                setAvailableParameters([]);
+                const status = error?.status ? ` (status ${error.status})` : "";
+                setFdrDataError(
+                    error?.message
+                        ? `${error.message}${status}`
+                        : "Unable to load the FDR attachment."
+                );
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) {
+                    setIsLoadingFdrData(false);
+                }
+            });
+
+        return () => controller.abort();
+    }, [selectedCase]);
+
+    useEffect(() => {
+        if (!Array.isArray(availableParameters) || availableParameters.length === 0) {
+            setSelectedParameters([]);
+            return;
+        }
+
+        setSelectedParameters((prev) => {
+            const filtered = prev.filter((item) => availableParameters.includes(item));
+            if (filtered.length > 0) {
+                return filtered;
+            }
+
+            return availableParameters.slice(0, Math.min(3, availableParameters.length));
+        });
+    }, [availableParameters]);
+
     const handleNavigateToCases = () => {
         navigate("/cases");
     };
 
-const handleUploadMissingData = () => {
+    const handleUploadMissingData = () => {
         if (!caseNumber) {
             return;
         }
@@ -453,6 +896,10 @@ const handleUploadMissingData = () => {
     };
 
     const toggleParameter = (parameter) => {
+        if (!availableParameters.includes(parameter)) {
+            return;
+        }
+
         setSelectedParameters((prev) =>
             prev.includes(parameter)
                 ? prev.filter((item) => item !== parameter)
@@ -478,12 +925,14 @@ const handleUploadMissingData = () => {
 
     const renderCategoryCharts = () =>
         categoryOrder.map((category) => {
-            const categoryParameters =
-                parameterGroups.find((group) => group.category === category)?.parameters || [];
+            const categoryParameters = (
+                parameterGroups.find((group) => group.category === category)?.parameters || []
+            ).filter((parameter) => availableParameterSet.has(parameter));
             const activeParameters = categoryParameters.filter((parameter) =>
                 selectedParameters.includes(parameter)
             );
             const chartData = categorySamples[category] || [];
+            const hasData = chartData.length > 0 && activeParameters.length > 0;
 
             return (
                 <div
@@ -497,7 +946,7 @@ const handleUploadMissingData = () => {
                         </span>
                     </div>
 
-                    {activeParameters.length > 0 ? (
+                    {hasData ? (
                         <>
                             <div className="flex flex-wrap gap-2">
                                 {activeParameters.map((parameter) => {
@@ -548,7 +997,9 @@ const handleUploadMissingData = () => {
                         </>
                     ) : (
                         <div className="flex h-48 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-center text-sm text-gray-500">
-                            Select {category.toLowerCase()} parameters to visualize trends.
+                            {categoryParameters.length === 0
+                                ? "No recorded parameters for this category in the uploaded file."
+                                : `Select ${category.toLowerCase()} parameters to visualize trends.`}
                         </div>
                     )}
                 </div>
@@ -832,7 +1283,7 @@ const handleUploadMissingData = () => {
                             </div>
                             <div className="mt-6 h-72">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={detectionTrendSamples}>
+                                    <ComposedChart data={detectionTrendData}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                                         <XAxis dataKey="time" stroke="#94a3b8" />
                                         <YAxis stroke="#94a3b8" />
@@ -1049,6 +1500,17 @@ const handleUploadMissingData = () => {
                 </div>
             </header>
 
+            {isLoadingFdrData && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    Loading FDR data from object storage...
+                </div>
+            )}
+            {fdrDataError && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    {fdrDataError}
+                </div>
+            )}
+
             <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr_280px] gap-6">
                 <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
                     <div>
@@ -1076,20 +1538,31 @@ const handleUploadMissingData = () => {
                             <div key={category} className="space-y-2">
                                 <p className="text-sm font-semibold text-gray-700">{category}</p>
                                 <div className="space-y-2">
-                                    {parameters.map((parameter) => (
-                                        <label
-                                            key={parameter}
-                                            className="flex items-center gap-3 text-sm text-gray-600"
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                                                checked={selectedParameters.includes(parameter)}
-                                                onChange={() => toggleParameter(parameter)}
-                                            />
-                                            <span>{parameter}</span>
-                                        </label>
-                                    ))}
+                                    {parameters.map((parameter) => {
+                                        const isAvailable = availableParameterSet.has(parameter);
+                                        return (
+                                            <label
+                                                key={parameter}
+                                                className="flex items-center gap-3 text-sm text-gray-600"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                                    checked={selectedParameters.includes(parameter)}
+                                                    disabled={!isAvailable}
+                                                    onChange={() => toggleParameter(parameter)}
+                                                />
+                                                <span
+                                                    className={
+                                                        isAvailable ? "" : "text-gray-400"
+                                                    }
+                                                >
+                                                    {parameter}
+                                                    {!isAvailable && " (not in file)"}
+                                                </span>
+                                            </label>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         ))}
