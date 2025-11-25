@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { formatFileSize } from '../utils/files';
+import { deriveCaseStatus, deriveDataStatus } from '../utils/statuses';
 import { uploadAttachmentToObjectStore } from '../utils/storage';
 
 const DEFAULT_ANALYSES = {
@@ -7,18 +8,6 @@ const DEFAULT_ANALYSES = {
   cvr: { status: 'Not Started', lastRun: null, summary: '' },
   correlate: { status: 'Not Started', lastRun: null, summary: '' },
 };
-
-const modules = ['CVR', 'FDR', 'Correlation'];
-const statuses = [
-  'Data Incomplete',
-  'Analysis Not Started',
-  'In Progress',
-  'FDR Analyzed',
-  'CVR Analyzed',
-  'Correlation Analyzed',
-  'Paused',
-  'Complete',
-];
 
 const FDR_EXTENSIONS = ['.csv', '.xls', '.xlsx'];
 const CVR_EXTENSIONS = ['.wav', '.mp3'];
@@ -39,8 +28,8 @@ const formatDateInput = (value) => {
 const createDefaultValues = () => ({
   caseNumber: '',
   caseName: '',
-  module: 'CVR & FDR',
-  status: 'Data Incomplete',
+  module: 'No Data Uploaded',
+  status: deriveCaseStatus(),
   owner: '',
   organization: '',
   examiner: '',
@@ -105,6 +94,14 @@ const CaseFormModal = ({
       setLocalError('');
       const defaults = createDefaultValues();
       const attachments = Array.isArray(initialValues?.attachments) ? initialValues.attachments : [];
+      const mergedAnalyses =
+        initialValues?.analyses && typeof initialValues.analyses === 'object'
+          ? {
+            fdr: { ...DEFAULT_ANALYSES.fdr, ...(initialValues?.analyses?.fdr || {}) },
+            cvr: { ...DEFAULT_ANALYSES.cvr, ...(initialValues?.analyses?.cvr || {}) },
+            correlate: { ...DEFAULT_ANALYSES.correlate, ...(initialValues?.analyses?.correlate || {}) },
+          }
+          : { ...DEFAULT_ANALYSES };
       const mapUpload = (type) => {
         const existing = attachments.find((item) => item?.type === type);
         if (!existing) {
@@ -146,13 +143,9 @@ const CaseFormModal = ({
           cvr: mapUpload('CVR'),
         },
         attachments,
-        analyses:
-          initialValues?.analyses && typeof initialValues.analyses === 'object'
-            ? {
-              ...DEFAULT_ANALYSES,
-              ...initialValues.analyses,
-            }
-            : DEFAULT_ANALYSES,
+        analyses: mergedAnalyses,
+        status: deriveCaseStatus({ analyses: mergedAnalyses }),
+        module: deriveDataStatus(attachments),
         timeline: Array.isArray(initialValues?.timeline) ? initialValues.timeline : [],
       });
     }
@@ -272,6 +265,7 @@ const CaseFormModal = ({
           caseNumber: formValues.caseNumber,
           attachmentType: label,
           file,
+          existingAttachments: [...attachments, ...existingAttachments],
         });
 
         attachments.push({
@@ -285,6 +279,7 @@ const CaseFormModal = ({
           storage: result.storage,
           contentType: result.contentType,
           uploadedAt: result.uploadedAt,
+          checksum: result.checksum,
         });
         return { hasData: true, uploadedNow: true };
 
@@ -428,19 +423,19 @@ const CaseFormModal = ({
       } = await buildAttachments(investigatorName);
       const analyses = updateAnalyses(hasFdrData, hasCvrData);
       const uploadedNow = fdrUploadedNow || cvrUploadedNow;
-      const resetStatus = uploadedNow ? 'Analysis Not Started' : formValues.status;
+      const derivedStatus = deriveCaseStatus({ analyses });
+      const derivedDataStatus = deriveDataStatus(attachments);
       const currentDate = new Date().toISOString().slice(0, 10);
       const normalizedLastUpdated = uploadedNow
         ? currentDate
         : formatDateInput(formValues.lastUpdated) || null;
 
-      if (uploadedNow) {
-        setFormValues((prev) => ({
-          ...prev,
-          status: resetStatus,
-          lastUpdated: currentDate,
-        }));
-      }
+      setFormValues((prev) => ({
+        ...prev,
+        status: derivedStatus,
+        lastUpdated: uploadedNow ? currentDate : prev.lastUpdated,
+        module: derivedDataStatus,
+      }));
       const sanitizedUploads = {
         fdr: {
           notes: formValues.uploads?.fdr?.notes || '',
@@ -486,7 +481,8 @@ const CaseFormModal = ({
 
       await onSubmit({
         ...formValues,
-        status: resetStatus,
+        status: derivedStatus,
+        module: derivedDataStatus,
         uploads: sanitizedUploads,
         owner: ownerValue,
         examiner: formValues.examiner || investigatorName,
@@ -875,41 +871,24 @@ const CaseFormModal = ({
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold text-gray-800">Case Settings</h3>
+            <h3 className="text-lg font-semibold text-gray-800">Case Status</h3>
             <p className="text-sm text-gray-500 mb-4">
-              Update the module and status selections after reviewing the latest uploads.
+              Data upload and analysis indicators update automatically based on your attachments and
+              analysis runs.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
-                Module
-                <select
-                  name="module"
-                  value={formValues.module}
-                  onChange={handleChange}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  {modules.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-sm font-medium text-gray-700 flex flex-col gap-2">
-                Status
-                <select
-                  name="status"
-                  value={formValues.status}
-                  onChange={handleChange}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  {statuses.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="text-sm font-medium text-gray-700 flex flex-col gap-2">
+                Data uploaded
+                <span className="inline-flex items-center px-3 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-200">
+                  {formValues.module || 'No Data Uploaded'}
+                </span>
+              </div>
+              <div className="text-sm font-medium text-gray-700 flex flex-col gap-2">
+                Analysis status (automatic)
+                <span className="inline-flex items-center px-3 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-200">
+                  {formValues.status || 'Analysis Not Started'}
+                </span>
+              </div>
             </div>
           </div>
 

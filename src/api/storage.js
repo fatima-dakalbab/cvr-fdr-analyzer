@@ -12,7 +12,14 @@ export const createDownloadTarget = async ({ bucket, objectKey, fileName, conten
     body: JSON.stringify({ bucket, objectKey, fileName, contentType }),
   });
 
+export const deleteObjectFromStorage = async ({ bucket, objectKey }) =>
+  request('/storage/delete', {
+    method: 'POST',
+    body: JSON.stringify({ bucket, objectKey }),
+  });
+
 export default {
   createUploadTarget,
   createDownloadTarget,
+  deleteObjectFromStorage,
 };

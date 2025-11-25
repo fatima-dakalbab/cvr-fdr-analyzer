@@ -19,19 +19,9 @@ import {
 } from '../api/cases';
 import { evaluateModuleReadiness } from '../utils/analysisAvailability';
 
-import {
-  CASE_STATUS_OPTIONS,
-  CASE_STATUS_CVR_ANALYZED,
-  CASE_STATUS_FDR_ANALYZED,
-  CASE_STATUS_CORRELATE_ANALYZED,
-  CASE_STATUS_READY_FOR_ANALYSIS,
-  CASE_STATUS_DATA_REQUIRED,
-  CASE_STATUS_ANALYSIS_IN_PROGRESS,
-  CASE_STATUS_ANALYSIS_PAUSED,
-  normalizeCaseRecord,
-} from '../utils/statuses';
+import { CASE_STATUS_OPTIONS, CASE_STATUS_NOT_STARTED, CASE_STATUS_STARTED, CASE_STATUS_COMPLETED, normalizeCaseRecord } from '../utils/statuses';
 
-const FALLBACK_MODULE_LABEL = 'Unassigned';
+const FALLBACK_MODULE_LABEL = 'No Data Uploaded';
 
 const formatDateString = (value) => {
   if (!value) {
@@ -47,13 +37,9 @@ const formatDateString = (value) => {
 };
 
 const statusStyles = {
-  [CASE_STATUS_CVR_ANALYZED]: 'bg-emerald-100 text-emerald-700',
-  [CASE_STATUS_FDR_ANALYZED]: 'bg-emerald-100 text-emerald-700',
-  [CASE_STATUS_CORRELATE_ANALYZED]: 'bg-emerald-100 text-emerald-700',
-  [CASE_STATUS_READY_FOR_ANALYSIS]: 'bg-sky-100 text-sky-700',
-  [CASE_STATUS_DATA_REQUIRED]: 'bg-rose-100 text-rose-700',
-  [CASE_STATUS_ANALYSIS_IN_PROGRESS]: 'bg-amber-100 text-amber-700',
-  [CASE_STATUS_ANALYSIS_PAUSED]: 'bg-gray-200 text-gray-700',
+  [CASE_STATUS_COMPLETED]: 'bg-emerald-100 text-emerald-700',
+  [CASE_STATUS_STARTED]: 'bg-amber-100 text-amber-700',
+  [CASE_STATUS_NOT_STARTED]: 'bg-gray-200 text-gray-700',
 };
 
 const Cases = () => {
@@ -487,7 +473,7 @@ const Cases = () => {
         {isFilterOpen && (
           <div className="border border-gray-200 rounded-lg bg-gray-50 p-4 space-y-4">
             <div>
-              <h4 className="text-sm font-semibold text-gray-700">Module</h4>
+              <h4 className="text-sm font-semibold text-gray-700">Data uploaded</h4>
               {availableModules.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-3">
                   {availableModules.map((module) => (
