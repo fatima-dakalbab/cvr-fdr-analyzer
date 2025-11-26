@@ -232,22 +232,6 @@ const algorithmDisplayNames = {
     isolation_forest: "Isolation Forest",
 };
 
-const detectionResultSummary = {
-    anomaliesDetected: 3,
-    overallReduction: 48,
-    eventsByPhase: [
-        { name: "Taxi", value: 4, color: "#6ee7b7" },
-        { name: "Takeoff", value: 6, color: "#34d399" },
-        { name: "Landing", value: 3, color: "#10b981" },
-        { name: "Climb", value: 2, color: "#059669" },
-    ],
-    anomalyRows: [
-        { parameter: "Engine N1", time: "08:12:09", severity: "Moderate" },
-        { parameter: "Altitude deviation", time: "08:14:32", severity: "High" },
-        { parameter: "Flap asymmetry", time: "08:16:51", severity: "Low" },
-    ],
-};
-
 const toNumber = (value) => {
     if (value === undefined || value === null) {
         return null;
@@ -829,6 +813,12 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         anomalyResult?.count ??
         sampleRows.length ??
         null;
+    const anomalyPercentage =
+        anomalyResult?.anomalyPercentage ??
+        anomalyResult?.anomaly_percentage ??
+        (totalRows && typeof anomalyCount === "number" && totalRows > 0
+            ? (anomalyCount / totalRows) * 100
+            : null);
     const noAnomaliesDetected = Boolean(anomalyResult) && anomalyCount === 0;
     const topAnomalyParameters = useMemo(() => {
         if (!anomalyResult) {
@@ -879,6 +869,73 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             .slice(0, 5)
             .map(([name, count]) => ({ name, count }));
     }, [anomalyResult]);
+    const displayedTopParameters = useMemo(() => {
+        const providedTopParameters =
+            anomalyResult?.topParameters || anomalyResult?.top_parameters;
+
+        if (Array.isArray(providedTopParameters) && providedTopParameters.length > 0) {
+            const normalizedTopParameters = providedTopParameters
+                .map((item) => {
+                    const name =
+                        item?.parameter || item?.name || item?.field || item?.label;
+                    const count = item?.count ?? item?.anomalies ?? item?.total;
+
+                    if (!name) {
+                        return null;
+                    }
+
+                    return {
+                        name: getParameterLabel(name) || name,
+                        count: Number.isFinite(Number(count)) ? Number(count) : 0,
+                    };
+                })
+                .filter(Boolean);
+
+            if (normalizedTopParameters.length > 0) {
+                return normalizedTopParameters.sort((a, b) => b.count - a.count);
+            }
+        }
+
+        return topAnomalyParameters;
+    }, [anomalyResult, topAnomalyParameters]);
+    const anomalyTableRows = useMemo(
+        () =>
+            sampleRows.slice(0, 10).map((row, index) => {
+                const parameters = Array.isArray(row?.parameters)
+                    ? row.parameters
+                    : Object.keys(row?.values || row || {}).filter(
+                          (key) =>
+                              ![
+                                  "rowIndex",
+                                  "row_number",
+                                  "index",
+                                  "row",
+                                  "severity",
+                                  "score",
+                                  "parameters",
+                              ].includes(key)
+                      );
+                const parameterLabel = parameters
+                    .slice(0, 3)
+                    .map((param) => getParameterLabel(param) || param)
+                    .join(", ");
+
+                const rowLabel =
+                    row?.rowIndex ?? row?.row_number ?? row?.index ?? row?.row ?? index + 1;
+                const timestamp =
+                    row?.timestamp || row?.time || row?.TIME || row?.datetime || row?.recorded_at;
+                const severity = row?.severity || row?.score;
+
+                return {
+                    id: `${rowLabel}-${index}`,
+                    parameter: parameterLabel || `Row ${rowLabel}`,
+                    time: timestamp || `Row ${rowLabel}`,
+                    severity: severity || "Flagged",
+                    summary: renderSampleValues(row),
+                };
+            }),
+        [sampleRows]
+    );
 
     const renderSampleValues = (row) => {
         if (!row || typeof row !== "object") {
@@ -1171,11 +1228,39 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     }
 
     if (workflowStage === "results") {
+        if (!anomalyResult) {
+            return (
+                <div className="max-w-4xl mx-auto flex flex-col items-center justify-center py-24 text-center space-y-4">
+                    <div className="rounded-full bg-emerald-50 p-4 text-emerald-600">
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            className="h-10 w-10"
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
+                            <circle cx="12" cy="12" r="9" />
+                        </svg>
+                    </div>
+                    <h2 className="text-2xl font-semibold text-gray-900">Detection results unavailable</h2>
+                    <p className="text-sm text-gray-600 max-w-md">
+                        Run anomaly detection for this case to populate the results dashboard with algorithm-specific insights.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => setWorkflowStage("analysis")}
+                        className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm"
+                    >
+                        Return to configuration
+                    </button>
+                </div>
+            );
+        }
+
         const totalEvents =
-            detectionResultSummary.eventsByPhase.reduce(
-                (sum, item) => sum + item.value,
-                0
-            ) || 1;
+            displayedTopParameters.reduce((sum, item) => sum + (item?.count || 0), 0) || 1;
 
         return (
             <div className="max-w-7xl mx-auto space-y-6">
@@ -1190,6 +1275,11 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         <p className="text-gray-600">
                             Generated insights for {selectedCase?.id} · {selectedCase?.title}
                         </p>
+                        {algorithmUsed && (
+                            <p className="text-sm text-gray-500 mt-1">
+                                Algorithm: <span className="font-semibold text-gray-800">{algorithmUsed}</span>
+                            </p>
+                        )}
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                         <button
@@ -1276,7 +1366,10 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                     </p>
                                 </div>
                                 <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                                    {detectionResultSummary.anomaliesDetected} anomalies detected
+                                    {anomalyCount ?? 0} anomalies detected
+                                    {typeof anomalyPercentage === "number"
+                                        ? ` (${anomalyPercentage.toFixed(1)}%)`
+                                        : ""}
                                 </span>
                             </div>
                             <div className="overflow-x-auto">
@@ -1289,19 +1382,35 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {detectionResultSummary.anomalyRows.map((row) => (
-                                            <tr key={row.parameter} className="hover:bg-gray-50">
-                                                <td className="px-4 py-3 font-medium text-gray-800">
-                                                    {row.parameter}
-                                                </td>
-                                                <td className="px-4 py-3 text-gray-500">{row.time}</td>
-                                                <td className="px-4 py-3 text-right">
-                                                    <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50">
-                                                        {row.severity}
-                                                    </span>
+                                        {anomalyTableRows.length > 0 ? (
+                                            anomalyTableRows.map((row) => (
+                                                <tr key={row.id} className="hover:bg-gray-50">
+                                                    <td className="px-4 py-3 font-medium text-gray-800">
+                                                        <div>{row.parameter}</div>
+                                                        {row.summary && (
+                                                            <p className="text-xs text-gray-500 mt-1 break-words">
+                                                                {row.summary}
+                                                            </p>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-gray-500">{row.time}</td>
+                                                    <td className="px-4 py-3 text-right">
+                                                        <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50">
+                                                            {row.severity}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td
+                                                    className="px-4 py-4 text-center text-sm text-gray-500"
+                                                    colSpan={3}
+                                                >
+                                                    No sample anomalies returned for this run.
                                                 </td>
                                             </tr>
-                                        ))}
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
@@ -1311,29 +1420,32 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     <aside className="space-y-6">
                         <div className="rounded-3xl bg-white p-6 border border-gray-200">
                             <h2 className="text-lg font-semibold text-gray-900">
-                                Events by Flight Phase
+                                Top anomalous parameters
                             </h2>
                             <p className="mt-1 text-sm text-gray-500">
-                                Distribution of detected deviations across the flight timeline.
+                                Parameters most frequently flagged by the selected algorithm.
                             </p>
 
                             <div className="mt-6 space-y-4">
-                                {detectionResultSummary.eventsByPhase.map((item) => (
-                                    <div key={item.name} className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <span
-                                                className="h-2.5 w-8 rounded-full"
-                                                style={{ backgroundColor: item.color }}
-                                            />
-                                            <span className="text-sm font-medium text-gray-700">
-                                                {item.name}
+                                {displayedTopParameters.length > 0 ? (
+                                    displayedTopParameters.map((item) => (
+                                        <div key={item.name} className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <span className="h-2.5 w-8 rounded-full bg-emerald-200" />
+                                                <span className="text-sm font-medium text-gray-700">
+                                                    {item.name}
+                                                </span>
+                                            </div>
+                                            <span className="text-sm font-semibold text-gray-900">
+                                                {Math.round((item.count / totalEvents) * 100)}%
                                             </span>
                                         </div>
-                                        <span className="text-sm font-semibold text-gray-900">
-                                            {Math.round((item.value / totalEvents) * 100)}%
-                                        </span>
-                                    </div>
-                                ))}
+                                    ))
+                                ) : (
+                                    <p className="text-sm text-gray-500">
+                                        No anomalous parameters reported for this run.
+                                    </p>
+                                )}
                             </div>
                         </div>
 
@@ -1342,18 +1454,19 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 Anomalies Detected
                             </h2>
                             <p className="text-sm text-gray-500">
-                                {detectionResultSummary.overallReduction}% risk reduction
-                                compared to baseline.
+                                Share of FDR rows flagged by the detection algorithm.
                             </p>
                             <div className="mt-6 flex h-48 items-center justify-center">
                                 <div className="relative">
                                     <div className="h-40 w-40 rounded-full border-[14px] border-emerald-100" />
                                     <div className="absolute inset-2 flex flex-col items-center justify-center rounded-full bg-white">
                                         <span className="text-3xl font-bold text-emerald-600">
-                                            {detectionResultSummary.overallReduction}%
+                                            {typeof anomalyPercentage === "number"
+                                                ? anomalyPercentage.toFixed(1)
+                                                : "—"}
                                         </span>
                                         <span className="text-xs uppercase tracking-wide text-gray-500">
-                                            Saved
+                                            % of rows
                                         </span>
                                     </div>
                                 </div>
