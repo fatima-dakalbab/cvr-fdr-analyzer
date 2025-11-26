@@ -417,6 +417,80 @@ async function objectExists({ bucket, objectKey }) {
   }
 }
 
+const normalizeObjectKeyCandidates = (objectKey, bucket) => {
+  const candidates = new Set();
+  const trimmed = (objectKey || '').replace(/^\/+/, '');
+
+  if (trimmed) {
+    candidates.add(trimmed);
+
+    if (bucket && trimmed.startsWith(`${bucket}/`)) {
+      candidates.add(trimmed.slice(bucket.length + 1));
+    }
+
+    try {
+      const decoded = decodeURIComponent(trimmed);
+      candidates.add(decoded);
+
+      if (bucket && decoded.startsWith(`${bucket}/`)) {
+        candidates.add(decoded.slice(bucket.length + 1));
+      }
+    } catch (_error) {
+      // ignore decode failures and fall back to original values
+    }
+  }
+
+  return Array.from(candidates).filter(Boolean);
+};
+
+async function downloadObjectAsString({ bucket, objectKey }) {
+  if (!objectKey) {
+    const error = new Error('objectKey is required to download from object storage.');
+    error.status = 400;
+    throw error;
+  }
+
+  const config = getConfig();
+  const bucketName = (bucket || '').trim() || config.bucket;
+  const candidates = normalizeObjectKeyCandidates(objectKey, bucketName);
+  const errors = [];
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    const candidateKey = candidates[i];
+    try {
+      const response = await s3.send(
+        new GetObjectCommand({
+          Bucket: bucketName,
+          Key: candidateKey,
+        }),
+      );
+
+      if (response?.Body?.transformToString) {
+        return response.Body.transformToString();
+      }
+
+      if (response?.Body) {
+        const chunks = [];
+        for await (const chunk of response.Body) {
+          chunks.push(chunk);
+        }
+        return Buffer.concat(chunks).toString('utf-8');
+      }
+
+      throw new Error('Unable to read object body from storage response.');
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  const lastError = errors[errors.length - 1];
+  if (lastError) {
+    throw lastError;
+  }
+
+  throw new Error('Unable to download object from storage.');
+}
+
 
 module.exports = {
   initializeStorage,
@@ -424,4 +498,5 @@ module.exports = {
   createPresignedDownload,
   objectExists,
   deleteObject,
+  downloadObjectAsString,
 };
