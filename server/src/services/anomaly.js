@@ -26,7 +26,23 @@ const parseCsv = (text) => {
   return { headers, rows };
 };
 
-const calculateColumnStats = (headers, rows) => {
+const percentile = (values, percentileRank) => {
+  if (values.length === 0) return null;
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * percentileRank;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+
+  if (lower === upper) {
+    return sorted[lower];
+  }
+
+  const weight = index - lower;
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * weight;
+};
+
+const calculateColumnStatsZScore = (headers, rows) => {
   const stats = {};
 
   headers.forEach((header) => {
@@ -55,7 +71,7 @@ const calculateColumnStats = (headers, rows) => {
   return stats;
 };
 
-const detectAnomalies = (headers, rows, stats) => {
+const detectAnomaliesZScore = (headers, rows, stats) => {
   const anomalies = [];
 
   rows.forEach((row, index) => {
@@ -86,9 +102,94 @@ const detectAnomalies = (headers, rows, stats) => {
   return anomalies;
 };
 
+const calculateColumnStatsIqr = (headers, rows) => {
+  const stats = {};
+
+  headers.forEach((header) => {
+    const numericValues = rows
+      .map((row) => Number(row[header]))
+      .filter((value) => !Number.isNaN(value));
+
+    if (numericValues.length === 0) {
+      return;
+    }
+
+    const q1 = percentile(numericValues, 0.25);
+    const q3 = percentile(numericValues, 0.75);
+    if (q1 === null || q3 === null) {
+      return;
+    }
+
+    const iqr = q3 - q1;
+    const fence = 1.5 * iqr;
+
+    stats[header] = {
+      q1,
+      q3,
+      iqr,
+      lowerBound: q1 - fence,
+      upperBound: q3 + fence,
+    };
+  });
+
+  return stats;
+};
+
+const detectAnomaliesIqr = (headers, rows, stats) => {
+  const anomalies = [];
+
+  rows.forEach((row, index) => {
+    let isAnomalous = false;
+    const numericValues = {};
+
+    headers.forEach((header) => {
+      const value = Number(row[header]);
+      const columnStats = stats[header];
+
+      if (!columnStats || Number.isNaN(value)) {
+        return;
+      }
+
+      numericValues[header] = value;
+      const { lowerBound, upperBound } = columnStats;
+
+      if (value < lowerBound || value > upperBound) {
+        isAnomalous = true;
+      }
+    });
+
+    if (isAnomalous) {
+      anomalies.push({ rowIndex: index, values: numericValues });
+    }
+  });
+
+  return anomalies;
+};
+
 const findFdrAttachment = (caseData) => {
   const attachments = Array.isArray(caseData.attachments) ? caseData.attachments : [];
   return attachments.find((item) => (item?.type || '').toUpperCase() === 'FDR');
+};
+
+const getAlgorithmHandlers = (algorithmName) => {
+  switch (algorithmName) {
+    case 'iqr':
+      return {
+        calculateColumnStats: calculateColumnStatsIqr,
+        detectAnomalies: detectAnomaliesIqr,
+      };
+    case 'isolation_forest':
+      return {
+        calculateColumnStats: calculateColumnStatsZScore,
+        detectAnomalies: detectAnomaliesZScore,
+      };
+    case 'zscore':
+    default:
+      return {
+        calculateColumnStats: calculateColumnStatsZScore,
+        detectAnomalies: detectAnomaliesZScore,
+      };
+  }
 };
 
 const analyzeFdrForCase = async (caseNumber, options = {}) => {
@@ -112,6 +213,8 @@ const analyzeFdrForCase = async (caseNumber, options = {}) => {
   });
 
   const { headers, rows } = parseCsv(csvText);
+  const algorithm = typeof options.algorithm === 'string' ? options.algorithm.toLowerCase() : 'zscore';
+  const { calculateColumnStats, detectAnomalies } = getAlgorithmHandlers(algorithm);
   const requestedParameters = Array.isArray(options.parameters)
     ? options.parameters
         .map((param) => (typeof param === 'string' ? param.trim() : ''))
