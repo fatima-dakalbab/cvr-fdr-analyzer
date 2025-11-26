@@ -100,6 +100,12 @@ const parameterMetadata = parameterEntries.reduce((acc, entry) => {
     return acc;
 }, {});
 
+const parameterMatchingKeywords = {
+    ALTITUDE: ["altitude"],
+    AIRSPEED: ["airspeed", "speed"],
+    PERCENT_POWER: ["n1", "percent power"],
+};
+
 const parameterGroups = buildParameterGroups(parameterEntries);
 const defaultSelectedParameters = ["ALTITUDE", "AIRSPEED", "ENGINE_RPM_L"].filter(
     (key) => parameterMetadata[key]
@@ -252,6 +258,54 @@ const pickNumeric = (row, columnNames = []) => {
     return null;
 };
 
+const findMatchingHeader = (headers = [], csvKey = "", keywords = []) => {
+    const normalizedHeaders = headers.map((header) => ({
+        raw: header,
+        value: String(header || "").toLowerCase(),
+    }));
+    const normalizedKeywords = [csvKey, ...keywords]
+        .map((keyword) => String(keyword || "").toLowerCase())
+        .filter(Boolean);
+
+    for (const keyword of normalizedKeywords) {
+        const exact = normalizedHeaders.find((header) => header.value === keyword);
+        if (exact) {
+            return exact.raw;
+        }
+    }
+
+    for (const keyword of normalizedKeywords) {
+        const partial = normalizedHeaders.find((header) =>
+            header.value.includes(keyword)
+        );
+
+        if (partial) {
+            return partial.raw;
+        }
+    }
+
+    return null;
+};
+
+const buildParameterColumnMap = (headers = []) => {
+    const matches = {};
+
+    parameterEntries.forEach(({ key, csvKey }) => {
+        const keywordHints = parameterMatchingKeywords[key] || [];
+        const match = findMatchingHeader(headers, csvKey, keywordHints);
+
+        if (match) {
+            matches[key] = [match];
+        } else if (csvKey) {
+            matches[key] = [csvKey];
+        } else {
+            matches[key] = [];
+        }
+    });
+
+    return matches;
+};
+
 const splitCsvLine = (line = "") => {
     const cells = [];
     let current = "";
@@ -280,7 +334,7 @@ const splitCsvLine = (line = "") => {
 
 const parseCsvRows = (text) => {
     if (!text) {
-        return [];
+        return { headers: [], rows: [] };
     }
 
     const lines = text
@@ -289,11 +343,11 @@ const parseCsvRows = (text) => {
         .filter(Boolean);
 
     if (lines.length < 2) {
-        return [];
+        return { headers: [], rows: [] };
     }
 
     const headers = splitCsvLine(lines[0]);
-    return lines.slice(1).map((line) => {
+    const rows = lines.slice(1).map((line) => {
         const cells = splitCsvLine(line);
         const row = {};
 
@@ -303,6 +357,8 @@ const parseCsvRows = (text) => {
 
         return row;
     });
+
+    return { headers, rows };
 };
 
 const formatSessionTime = (value) => {
@@ -332,13 +388,17 @@ const resolveTimeLabel = (row, index) => {
 };
 
 const normalizeFdrRows = (csvText) => {
-    const rawRows = parseCsvRows(csvText);
+    const { headers, rows: rawRows } = parseCsvRows(csvText);
+    const columnMap = buildParameterColumnMap(headers);
 
     return rawRows.map((row, index) => {
         const normalized = { time: resolveTimeLabel(row, index) };
 
         parameterEntries.forEach(({ key, csvKey }) => {
-            const value = pickNumeric(row, [csvKey]);
+            const columnsToTry = columnMap[key]?.length
+                ? columnMap[key]
+                : [csvKey].filter(Boolean);
+            const value = pickNumeric(row, columnsToTry);
             if (value !== null) {
                 normalized[key] = value;
             }
@@ -456,6 +516,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [availableParameters, setAvailableParameters] = useState(
         defaultAvailableParameters
     );
+    const [normalizedRows, setNormalizedRows] = useState(sampleNormalizedRows);
     const [anomalyResult, setAnomalyResult] = useState(null);
     const [anomalyError, setAnomalyError] = useState("");
     const [isLoadingFdrData, setIsLoadingFdrData] = useState(false);
@@ -488,19 +549,19 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         return Array.isArray(rows) ? rows : [];
     }, [anomalyResult]);
     const algorithmUsed = useMemo(() => {
-        if (!anomalyResult?.algorithm) {
+        const sourceAlgorithm = anomalyResult?.algorithm || selectedAlgorithm;
+
+        if (!sourceAlgorithm) {
             return null;
         }
 
         const normalized =
-            typeof anomalyResult.algorithm === "string"
-                ? anomalyResult.algorithm.toLowerCase()
-                : anomalyResult.algorithm;
+            typeof sourceAlgorithm === "string"
+                ? sourceAlgorithm.toLowerCase()
+                : sourceAlgorithm;
 
-        return (
-            algorithmDisplayNames[normalized] || anomalyResult.algorithm || null
-        );
-    }, [anomalyResult]);
+        return algorithmDisplayNames[normalized] || sourceAlgorithm || null;
+    }, [anomalyResult, selectedAlgorithm]);
     const { recentCases, loading: isRecentLoading, error: recentCasesError } =
         useRecentCases(3);
     const caseSelectionOptions = useMemo(() => {
@@ -608,6 +669,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             setDetectionTrendData(defaultDetectionTrendSamples);
             setParameterTableRows(defaultParameterTableRows);
             setAvailableParameters([]);
+            setNormalizedRows(sampleNormalizedRows);
             setFdrDataError("The selected case does not include an uploaded FDR file.");
             setIsLoadingFdrData(false);
             return;
@@ -640,6 +702,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 const availability = deriveAvailableParameters(rows);
                 const parameterTable = buildParameterTable(rows);
                 const trends = buildDetectionTrendSeries(rows);
+                setNormalizedRows(rows);
 
                 setCategorySamples({
                     "Flight Dynamics":
@@ -679,12 +742,13 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 }
 
                 setCategorySamples(defaultCategorySamples);
-                setDetectionTrendData(defaultDetectionTrendSamples);
-                setParameterTableRows(defaultParameterTableRows);
-                setAvailableParameters([]);
-                const status = error?.status ? ` (status ${error.status})` : "";
-                setFdrDataError(
-                    error?.message
+            setDetectionTrendData(defaultDetectionTrendSamples);
+            setParameterTableRows(defaultParameterTableRows);
+            setAvailableParameters([]);
+            setNormalizedRows(sampleNormalizedRows);
+            const status = error?.status ? ` (status ${error.status})` : "";
+            setFdrDataError(
+                error?.message
                         ? `${error.message}${status}`
                         : "Unable to load the FDR attachment."
                 );
@@ -786,6 +850,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             const result = await runFdrAnomalyDetection(caseNumber, {
                 parameters: detectionParameters,
                 algorithm: selectedAlgorithm,
+                rows: normalizedRows,
             });
             setAnomalyResult(result);
             setWorkflowStage((prev) =>
@@ -804,11 +869,13 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const categoryOrder = parameterGroups.map((group) => group.category);
     const totalRows =
         anomalyResult?.totalRows ??
+        anomalyResult?.evaluatedRows ??
         anomalyResult?.total_rows ??
         anomalyResult?.total ??
-        null;
+        (Array.isArray(normalizedRows) ? normalizedRows.length : null);
     const anomalyCount =
         anomalyResult?.anomalyCount ??
+        anomalyResult?.detectedCount ??
         anomalyResult?.anomalies?.length ??
         anomalyResult?.count ??
         sampleRows.length ??
@@ -970,6 +1037,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             );
             const chartData = categorySamples[category] || [];
             const hasData = chartData.length > 0 && activeParameters.length > 0;
+            const noMatches =
+                categoryParameters.length > 0 && chartData.length === 0;
 
             return (
                 <div
@@ -1039,9 +1108,11 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         </>
                     ) : (
                         <div className="flex h-48 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-center text-sm text-gray-500">
-                            {categoryParameters.length === 0
-                                ? "No recorded parameters for this category in the uploaded file."
-                                : `Select ${category.toLowerCase()} parameters to visualize trends.`}
+                            {noMatches
+                                ? "No matching numeric column found for this selection."
+                                : categoryParameters.length === 0
+                                  ? "No recorded parameters for this category in the uploaded file."
+                                  : `Select ${category.toLowerCase()} parameters to visualize trends.`}
                         </div>
                     )}
                 </div>
@@ -1275,11 +1346,9 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         <p className="text-gray-600">
                             Generated insights for {selectedCase?.id} · {selectedCase?.title}
                         </p>
-                        {algorithmUsed && (
-                            <p className="text-sm text-gray-500 mt-1">
-                                Algorithm: <span className="font-semibold text-gray-800">{algorithmUsed}</span>
-                            </p>
-                        )}
+                        <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            Algorithm used: {algorithmUsed || "Not specified"}
+                        </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                         <button
