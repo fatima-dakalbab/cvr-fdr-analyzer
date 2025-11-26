@@ -74,6 +74,11 @@ const detectAnomaliesLocally = (rows = [], parameters = [], algorithm) => {
       ? parameters
       : Object.keys(rows[0] || {}).filter((key) => key !== 'time');
 
+  console.debug('[Anomaly] Executing local detection', {
+    algorithm: algorithm || 'zscore',
+    parameterCount: usedParameters.length,
+  });
+
   const anomalyRows = new Set();
   const parameterCounts = {};
   const rowParameterHits = {};
@@ -137,6 +142,17 @@ const detectAnomaliesLocally = (rows = [], parameters = [], algorithm) => {
     parameterCounts[parameter] = count;
   });
 
+  const rawHitCount = Object.values(parameterCounts).reduce(
+    (sum, count) => sum + (count || 0),
+    0,
+  );
+
+  console.debug('[Anomaly] Local filter summary', {
+    algorithm: algorithm || 'zscore',
+    rawAnomalyCount: rawHitCount,
+    uniqueRowCount: anomalyRows.size,
+  });
+
   const anomalies = Array.from(anomalyRows).map((rowIndex) => {
     const row = rows[rowIndex] || {};
     const triggeredParameters = rowParameterHits[rowIndex]
@@ -161,6 +177,7 @@ const detectAnomaliesLocally = (rows = [], parameters = [], algorithm) => {
     algorithm,
     anomalies,
     anomalyCount: anomalies.length,
+    rawAnomalyCount: rawHitCount,
     anomalyPercentage:
       rows.length > 0 ? (anomalies.length / rows.length) * 100 : null,
     evaluatedRows: rows.length,
@@ -188,6 +205,12 @@ export const runFdrAnomalyDetection = async (
     payload.algorithm = algorithm;
   }
 
+  console.debug('[Anomaly] Starting detection run', {
+    caseId,
+    algorithm: payload.algorithm,
+    parameterCount: payload.parameters ? payload.parameters.length : 'all',
+  });
+
   try {
     const response = await request(`/cases/${caseId}/fdr/analyze`, {
       method: 'POST',
@@ -195,12 +218,23 @@ export const runFdrAnomalyDetection = async (
     });
 
     if (response) {
+      console.debug('[Anomaly] Received API anomaly response', {
+        algorithm: response.algorithm || algorithm,
+        anomalyCount:
+          response.anomalyCount ||
+          response.count ||
+          (Array.isArray(response.anomalies) ? response.anomalies.length : null),
+      });
       return {
         ...response,
         algorithm: response.algorithm || algorithm,
       };
     }
   } catch (error) {
+    console.debug('[Anomaly] API detection unavailable, evaluating local fallback', {
+      message: error?.message,
+      status: error?.status,
+    });
     if (!rows.length) {
       const message =
         error?.message || 'Unable to run anomaly detection for this case.';
@@ -213,6 +247,11 @@ export const runFdrAnomalyDetection = async (
   const localResult = detectAnomaliesLocally(rows, parameters, algorithm);
 
   if (localResult) {
+    console.debug('[Anomaly] Returning local detection result', {
+      algorithm: localResult.algorithm,
+      anomalyCount: localResult.anomalyCount,
+      rawAnomalyCount: localResult.rawAnomalyCount,
+    });
     return localResult;
   }
 

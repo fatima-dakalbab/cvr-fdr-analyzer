@@ -1121,124 +1121,108 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
     if (!isLinkedRoute && workflowStage === "caseSelection") {
         return (
-             <>
-                <div className="max-w-6xl mx-auto space-y-8">
-                    <header className="space-y-2">
-                        <p className="text-sm font-semibold text-emerald-600">FDR Module</p>
-                        <h1 className="text-3xl font-bold text-gray-900">
-                            Select a Case to Analyze Flight Data
-                        </h1>
-                        <p className="text-gray-600 max-w-3xl">
-                            Choose the investigation file whose flight data recorder stream you
-                            want to explore. Once selected, the system will load available
-                            parameters, trend charts, and anomaly detection workflows.
-                        </p>
-                    </header>
+            <div className="max-w-6xl mx-auto space-y-8">
+                <header className="space-y-2">
+                    <p className="text-sm font-semibold text-emerald-600">FDR Module</p>
+                    <h1 className="text-3xl font-bold text-gray-900">
+                        Select a Case to Analyze Flight Data
+                    </h1>
+                    <p className="text-gray-600 max-w-3xl">
+                        Choose the investigation file whose flight data recorder stream you want to explore. Once selected, the
+                        system will load available parameters, trend charts, and anomaly detection workflows.
+                    </p>
+                </header>
 
-                    {(recentCasesError || linkError) && (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                            {linkError || recentCasesError}
-                        </div>
-                    )}
-                    {isRecentLoading && recentCases.length === 0 && (
-                        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
-                            Loading recent cases...
-                        </div>
-                    )}
-
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {caseSelectionOptions.map((flightCase) => {
-                            const isActive = selectedCase?.id === flightCase.id;
-                            return (
-                                <button
-                                    key={flightCase.id}
-                                    type="button"
-                                    onClick={() => {
-                                        setSelectedCase(flightCase);
-                                        setLinkError("");
-                                        setMissingDataTypes([]);
-                                    }}
-                                    className={`text-left rounded-2xl border transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100 ${
-                                        isActive
-                                            ? "border-emerald-300 bg-emerald-50"
-                                            : "border-gray-200 bg-white"
-                                    }`}
-                                >
-                                    <div className="p-6 space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-xs uppercase tracking-wide text-gray-400">
-                                                Case ID
-                                            </span>
-                                            <span className="text-sm font-semibold text-emerald-600">
-                                                {flightCase.date}
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <p className="text-sm font-semibold text-gray-800">
-                                                {flightCase.id}
-                                            </p>
-                                            <h2 className="mt-1 text-xl font-bold text-gray-900">
-                                                {flightCase.title}
-                                            </h2>
-                                        </div>
-                                     <p className="text-sm text-gray-600">{flightCase.summary}</p>
-                                        <div className="flex items-center justify-between text-sm">
-                                            <span className="text-gray-500">Aircraft</span>
-                                            <span className="font-medium text-gray-800">
-                                                {flightCase.aircraft}
-                                            </span>
-                                        </div>
-                                        {isActive && (
-                                            <div className="text-xs font-medium text-emerald-700 bg-emerald-100 inline-flex items-center gap-1 rounded-full px-3 py-1">
-                                                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                                                Selected case
-                                            </div>
-                                        )}
-                                    </div>
-                                </button>
-                            );
-                        })}
-                        <button
-                            type="button"
-                            onClick={handleNavigateToCases}
-                            className="text-left rounded-2xl border-2 border-dashed border-emerald-200 bg-white transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100"
-                        >
-                            <div className="p-6 space-y-4">
-                                <div className="space-y-1">
-                                    <span className="text-xs uppercase tracking-wide text-emerald-600">
-                                        Need a different investigation?
-                                    </span>
-                                    <h2 className="text-xl font-bold text-gray-900">
-                                        Browse older cases
-                                    </h2>
-                                </div>
-                                <p className="text-sm text-gray-600">
-                                    Go to the Cases page to select from the full archive, then choose the analysis module you need.
-                                </p>
-                                <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-600">
-                                    Go to Cases
-                                    <ChevronRight className="w-4 h-4" />
-                                </span>
-                                
-                            </div>
-                                                    </button>
+                {(recentCasesError || linkError) && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        {linkError || recentCasesError}
                     </div>
+                )}
 
-                                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <div className="space-y-1 text-sm text-gray-500">
-                            <p>Select a case to detect anomalies in FDR data.</p>
+                {isRecentLoading && recentCases.length === 0 && (
+                    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+                        Loading recent cases...
+                    </div>
+                )}
+
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                    {caseSelectionOptions.map((flightCase) => {
+                        const isActive = selectedCase?.id === flightCase.id;
+                        return (
+                            <button
+                                key={flightCase.id}
+                                type="button"
+                                onClick={() => {
+                                    setSelectedCase(flightCase);
+                                    setLinkError("");
+                                    setMissingDataTypes([]);
+                                }}
+                                className={`text-left rounded-2xl border transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100 ${
+                                    isActive ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white"
+                                }`}
+                            >
+                                <div className="p-6 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs uppercase tracking-wide text-gray-400">Case ID</span>
+                                        <span className="text-sm font-semibold text-emerald-600">{flightCase.date}</span>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-semibold text-gray-800">{flightCase.id}</p>
+                                        <h2 className="mt-1 text-xl font-bold text-gray-900">{flightCase.title}</h2>
+                                    </div>
+                                    <p className="text-sm text-gray-600">{flightCase.summary}</p>
+                                    <div className="flex items-center justify-between text-sm">
+                                        <span className="text-gray-500">Aircraft</span>
+                                        <span className="font-medium text-gray-800">{flightCase.aircraft}</span>
+                                    </div>
+                                    {isActive && (
+                                        <div className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
+                                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                            Selected case
+                                        </div>
+                                    )}
+                                </div>
+                            </button>
+                        );
+                    })}
+
+                    <button
+                        type="button"
+                        onClick={handleNavigateToCases}
+                        className="text-left rounded-2xl border-2 border-dashed border-emerald-200 bg-white transition shadow-sm hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                    >
+                        <div className="p-6 space-y-4">
+                            <div className="space-y-1">
+                                <span className="text-xs uppercase tracking-wide text-emerald-600">
+                                    Need a different investigation?
+                                </span>
+                                <h2 className="text-xl font-bold text-gray-900">Browse older cases</h2>
+                            </div>
+                            <p className="text-sm text-gray-600">
+                                Go to the Cases page to select from the full archive, then choose the analysis module you need.
+                            </p>
+                            <span className="inline-flex items-center gap-2 text-sm font-semibold text-emerald-600">
+                                Go to Cases
+                                <ChevronRight className="w-4 h-4" />
+                            </span>
                         </div>
-                        <button
-                            type="button"
-                            disabled={!selectedCase}
-                            onClick={() => selectedCase && setWorkflowStage("analysis")}
-                            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-emerald-200"
-                        >
-                            Continue to parameter selection
-                        </button>
-                    </div> 
+                    </button>
                 </div>
-            </>
+
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="space-y-1 text-sm text-gray-500">
+                        <p>Select a case to detect anomalies in FDR data.</p>
+                    </div>
+                    <button
+                        type="button"
+                        disabled={!selectedCase}
+                        onClick={() => selectedCase && setWorkflowStage("analysis")}
+                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-emerald-200"
+                    >
+                        Continue to parameter selection
+                    </button>
+                </div>
+            </div>
         );
     }
 
