@@ -12,6 +12,7 @@ import {
     Bar,
 } from "recharts";
 import { fetchCaseByNumber } from "../api/cases";
+import { runFdrAnomalyDetection } from "../api/anomaly";
 import useRecentCases from "../hooks/useRecentCases";
 import { buildCasePreview } from "../utils/caseDisplay";
 import { evaluateModuleReadiness } from "../utils/analysisAvailability";
@@ -599,6 +600,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [availableParameters, setAvailableParameters] = useState(
         defaultAvailableParameters
     );
+    const [anomalyResult, setAnomalyResult] = useState(null);
+    const [anomalyError, setAnomalyError] = useState("");
     const [isLoadingFdrData, setIsLoadingFdrData] = useState(false);
     const [fdrDataError, setFdrDataError] = useState("");
     const isLinkedRoute = Boolean(caseNumber);
@@ -609,6 +612,18 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         () => new Set(availableParameters || []),
         [availableParameters]
     );
+    const sampleRows = useMemo(() => {
+        if (!anomalyResult) {
+            return [];
+        }
+
+        const rows =
+            anomalyResult.sampleRows ||
+            anomalyResult.samples ||
+            anomalyResult.anomalies;
+
+        return Array.isArray(rows) ? rows : [];
+    }, [anomalyResult]);
     const { recentCases, loading: isRecentLoading, error: recentCasesError } =
         useRecentCases(3);
     const caseSelectionOptions = useMemo(() => {
@@ -875,13 +890,13 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         );
     };
 
-    const handleRunDetection = () => {
+    const handleRunDetection = async () => {
         const detectionParameters =
             selectedParameters.length > 0
                 ? selectedParameters
                 : availableParameters;
 
-        if (detectionParameters.length === 0) {
+        if (detectionParameters.length === 0 || !caseNumber) {
             return;
         }
 
@@ -890,19 +905,59 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         }
 
         setIsRunningDetection(true);
+        setAnomalyError("");
+        setAnomalyResult(null);
 
-        // Placeholder for future machine learning integration.
-        // This simulates a background task and sets a ready state for when
-        // a real model is connected to this workflow.
-        window.setTimeout(() => {
-            setIsRunningDetection(false);
+        try {
+            const result = await runFdrAnomalyDetection(caseNumber);
+            setAnomalyResult(result);
             setWorkflowStage((prev) =>
                 prev === "analysis" ? "detectionComplete" : prev
             );
-        }, 1500);
+        } catch (error) {
+            setAnomalyResult(null);
+            setAnomalyError(
+                error?.message || "Unable to run anomaly detection for this case."
+            );
+        } finally {
+            setIsRunningDetection(false);
+        }
     };
 
     const categoryOrder = parameterGroups.map((group) => group.category);
+    const totalRows =
+        anomalyResult?.totalRows ??
+        anomalyResult?.total_rows ??
+        anomalyResult?.total ??
+        null;
+    const anomalyCount =
+        anomalyResult?.anomalyCount ??
+        anomalyResult?.anomalies?.length ??
+        anomalyResult?.count ??
+        null;
+
+    const renderSampleValues = (row) => {
+        if (!row || typeof row !== "object") {
+            return String(row ?? "");
+        }
+
+        const base = row.parameters || row.values || row.metrics || row;
+        const entries = Object.entries(base).filter(
+            ([key]) =>
+                !["rowIndex", "row_number", "index", "row", "severity", "score"].includes(
+                    key
+                )
+        );
+
+        if (entries.length === 0) {
+            return JSON.stringify(base);
+        }
+
+        return entries
+            .slice(0, 3)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(" · ");
+    };
 
     const renderCategoryCharts = () =>
         categoryOrder.map((category) => {
@@ -1571,6 +1626,101 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         Machine learning output will populate anomaly summaries and visualizations once integrated with the
                         detection pipeline.
                     </div>
+
+                    {(isRunningDetection || anomalyResult || anomalyError) && (
+                        <div className="rounded-lg border border-gray-200 bg-white/60 p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-gray-800">
+                                        Detection Summary
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                        Latest run for {selectedCase?.id || caseNumber || "current case"}
+                                    </p>
+                                </div>
+                                {isRunningDetection && (
+                                    <span className="text-xs font-semibold text-emerald-700">
+                                        Running...
+                                    </span>
+                                )}
+                            </div>
+
+                            {anomalyError && (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                    {anomalyError}
+                                </div>
+                            )}
+
+                            {!anomalyError && !anomalyResult && isRunningDetection && (
+                                <p className="text-sm text-gray-600">
+                                    Running anomaly detection. This may take a few moments.
+                                </p>
+                            )}
+
+                            {!anomalyError && anomalyResult && (
+                                <>
+                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                        <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                            <p className="text-xs text-gray-500">Total rows</p>
+                                            <p className="text-base font-semibold text-gray-900">
+                                                {totalRows ?? "—"}
+                                            </p>
+                                        </div>
+                                        <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                            <p className="text-xs text-gray-500">Anomalies</p>
+                                            <p className="text-base font-semibold text-gray-900">
+                                                {anomalyCount ?? sampleRows.length ?? "—"}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <p className="text-xs font-semibold text-gray-700">
+                                            Sample anomalous rows
+                                        </p>
+                                        {sampleRows.length > 0 ? (
+                                            <ul className="space-y-2">
+                                                {sampleRows.slice(0, 5).map((row, index) => {
+                                                    const rowLabel =
+                                                        row?.rowIndex ||
+                                                        row?.row_number ||
+                                                        row?.index ||
+                                                        row?.row ||
+                                                        index + 1;
+                                                    const severity = row?.severity || row?.score;
+
+                                                    return (
+                                                        <li
+                                                            key={`${rowLabel}-${index}`}
+                                                            className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
+                                                        >
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="font-semibold text-gray-800">
+                                                                    Row {rowLabel}
+                                                                </span>
+                                                                {severity && (
+                                                                    <span className="text-xs rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
+                                                                        {severity}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs text-gray-600 break-words">
+                                                                {renderSampleValues(row)}
+                                                            </p>
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        ) : (
+                                            <p className="text-sm text-gray-500">
+                                                No sample anomalies returned for this run.
+                                            </p>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
                 </section>
             </div>
 
