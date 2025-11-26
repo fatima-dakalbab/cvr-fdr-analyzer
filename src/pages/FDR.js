@@ -1328,9 +1328,9 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         Continue to parameter selection
                     </button>
                 </div>
-            </div>
-        );
-    }
+        </div>
+    );
+}
 
     if (workflowStage === "detectionComplete") {
         return (
@@ -1980,6 +1980,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         )}
                     </section>
                 </div>
+            </div>
 
             <section className="bg-white border border-gray-200 rounded-xl p-6">
                 <div className="flex items-center justify-between mb-4">
