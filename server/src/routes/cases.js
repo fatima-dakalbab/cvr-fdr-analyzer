@@ -6,6 +6,7 @@ const {
   updateCase,
   deleteCase,
 } = require('../services/cases');
+const { analyzeFdrForCase } = require('../services/anomaly');
 const { validateCasePayload } = require('../utils/validate-case');
 
 const router = express.Router();
@@ -14,6 +15,15 @@ router.get('/', async (_req, res, next) => {
   try {
     const data = await listCases();
     res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:caseNumber/fdr/analyze', async (req, res, next) => {
+  try {
+    const result = await analyzeFdrForCase(req.params.caseNumber);
+    res.json(result);
   } catch (error) {
     next(error);
   }
