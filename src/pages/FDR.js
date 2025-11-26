@@ -303,6 +303,11 @@ const buildParameterColumnMap = (headers = []) => {
         }
     });
 
+    console.debug("[FDR] Parameter column matches", {
+        headers,
+        matches,
+    });
+
     return matches;
 };
 
@@ -490,6 +495,43 @@ const buildDetectionTrendSeries = (rows) =>
         240
     );
 
+const summarizeSeriesProfile = (data = [], key) => {
+    const values = data
+        .map((row) => row?.[key])
+        .filter((value) => typeof value === "number" && !Number.isNaN(value));
+
+    if (values.length === 0) {
+        return { isBinary: false, isLowCardinality: false, isMultiScale: false };
+    }
+
+    const uniqueValues = new Set(values);
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    const spread = max - min;
+    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const isBinary =
+        uniqueValues.size <= 2 &&
+        Array.from(uniqueValues).every((value) => value === 0 || value === 1);
+    const isLowCardinality = uniqueValues.size <= 6;
+    const isMultiScale = Math.abs(spread) > Math.max(1000, Math.abs(mean) * 25);
+
+    return { isBinary, isLowCardinality, isMultiScale };
+};
+
+const getSeriesRenderConfig = (data = [], key) => {
+    const profile = summarizeSeriesProfile(data, key);
+
+    if (profile.isBinary) {
+        return { variant: "line", lineType: "stepAfter" };
+    }
+
+    if (profile.isLowCardinality) {
+        return { variant: "bar" };
+    }
+
+    return { variant: "line", lineType: "monotone" };
+};
+
 const defaultCategorySamples = buildCategorySamplesFromRows(sampleNormalizedRows);
 const defaultAvailableParameters = Array.from(
     deriveAvailableParameters(sampleNormalizedRows)
@@ -562,6 +604,40 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         return algorithmDisplayNames[normalized] || sourceAlgorithm || null;
     }, [anomalyResult, selectedAlgorithm]);
+    useEffect(() => {
+        if (!anomalyResult) {
+            return;
+        }
+
+        const anomalyCountForLog =
+            anomalyResult.anomalyCount ??
+            anomalyResult.detectedCount ??
+            anomalyResult.anomalies?.length ??
+            anomalyResult.count ??
+            null;
+        const rawCount =
+            anomalyResult.rawAnomalyCount ??
+            anomalyResult.raw_anomaly_count ??
+            (anomalyResult.parameterCounts
+                ? Object.values(anomalyResult.parameterCounts).reduce(
+                      (sum, value) => sum + (value || 0),
+                      0
+                  )
+                : null);
+
+        console.debug("[FDR] Detection result state updated", {
+            algorithm: anomalyResult.algorithm || selectedAlgorithm,
+            anomalyCount: anomalyCountForLog,
+            rawAnomalyCount: rawCount ?? undefined,
+            sampleRows: sampleRows.length,
+            totalRows:
+                anomalyResult.totalRows ??
+                anomalyResult.evaluatedRows ??
+                anomalyResult.total ??
+                anomalyResult.total_rows ??
+                (Array.isArray(normalizedRows) ? normalizedRows.length : undefined),
+        });
+    }, [anomalyResult, normalizedRows, sampleRows.length, selectedAlgorithm]);
     const { recentCases, loading: isRecentLoading, error: recentCasesError } =
         useRecentCases(3);
     const caseSelectionOptions = useMemo(() => {
@@ -1039,11 +1115,14 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             const hasData = chartData.length > 0 && activeParameters.length > 0;
             const noMatches =
                 categoryParameters.length > 0 && chartData.length === 0;
+            const hasMultiScaleData = activeParameters.some((parameter) =>
+                summarizeSeriesProfile(chartData, parameter).isMultiScale
+            );
 
             return (
                 <div
                     key={category}
-                    className="w-full space-y-4 rounded-2xl border border-gray-200 bg-white/40 p-4"
+                    className="flex w-full flex-col gap-3 rounded-2xl border border-gray-200 bg-white/70 p-4 shadow-sm"
                 >
                     <div className="flex items-center justify-between">
                         <h3 className="text-sm font-semibold text-gray-800">{category}</h3>
@@ -1078,27 +1157,54 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 })}
                             </div>
 
-                            <div className="h-48">
+                            <div className="min-h-[260px]">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={chartData}>
+                                    <ComposedChart
+                                        data={chartData}
+                                        margin={{ top: 12, right: 24, left: 0, bottom: 0 }}
+                                    >
                                         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                        <XAxis dataKey="time" stroke="#94a3b8" />
-                                        <YAxis stroke="#94a3b8" />
-                                        <Tooltip />
+                                        <XAxis dataKey="time" stroke="#94a3b8" minTickGap={20} />
+                                        <YAxis
+                                            stroke="#94a3b8"
+                                            allowDataOverflow={hasMultiScaleData}
+                                            domain={["auto", "auto"]}
+                                            padding={hasMultiScaleData ? { top: 12, bottom: 12 } : { top: 8, bottom: 8 }}
+                                        />
+                                        <Tooltip cursor={{ stroke: "#cbd5e1" }} />
                                         {activeParameters.map((parameter) => {
                                             const config = parameterMetadata[parameter];
                                             const stroke = config?.color ?? "#0f172a";
                                             const label = config?.label || parameter;
+                                            const renderConfig = getSeriesRenderConfig(
+                                                chartData,
+                                                parameter
+                                            );
+
+                                            if (renderConfig.variant === "bar") {
+                                                return (
+                                                    <Bar
+                                                        key={parameter}
+                                                        dataKey={parameter}
+                                                        name={label}
+                                                        fill={stroke}
+                                                        barSize={18}
+                                                        isAnimationActive={false}
+                                                    />
+                                                );
+                                            }
 
                                             return (
                                                 <Line
                                                     key={parameter}
-                                                    type="monotone"
+                                                    type={renderConfig.lineType || "monotone"}
                                                     dataKey={parameter}
                                                     name={label}
                                                     stroke={stroke}
                                                     strokeWidth={2}
                                                     dot={false}
+                                                    connectNulls
+                                                    isAnimationActive={false}
                                                 />
                                             );
                                         })}
@@ -1107,7 +1213,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             </div>
                         </>
                     ) : (
-                        <div className="flex h-48 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-center text-sm text-gray-500">
+                        <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-center text-sm text-gray-500">
                             {noMatches
                                 ? "No matching numeric column found for this selection."
                                 : categoryParameters.length === 0
@@ -1611,7 +1717,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
     return (
         <div className="max-w-7xl mx-auto space-y-6">
-            <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-900">FDR Module</h1>
                     <p className="text-gray-600">
@@ -1619,20 +1725,30 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         detection for the selected flight case.
                     </p>
                 </div>
-                <div className="flex items-center gap-3">
-                    <div>
+                <div className="flex flex-col items-start gap-2 text-left sm:flex-row sm:items-center sm:gap-3 sm:text-right">
+                    <div className="sm:text-right">
                         <p className="text-sm text-gray-500">Active Case</p>
                         <p className="text-sm font-semibold text-gray-800">
                             {selectedCase?.id} · {selectedCase?.title}
                         </p>
                     </div>
-                    <button
-                        type="button"
-                        onClick={handleChangeCase}
-                        className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 transition hover:border-emerald-200 hover:text-emerald-600"
-                    >
-                        Change case
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={handleChangeCase}
+                            className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 transition hover:border-emerald-200 hover:text-emerald-600"
+                        >
+                            Change case
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleRunDetection}
+                            disabled={isRunningDetection || availableParameters.length === 0}
+                            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-200"
+                        >
+                            {isRunningDetection ? "Running..." : "Run Anomaly Detection"}
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -1647,7 +1763,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr_280px] gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-6">
                 <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
                     <div>
                         <h2 className="text-lg font-semibold text-gray-900">
@@ -1706,214 +1822,180 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     </div>
                 </section>
 
-                <section className="bg-white border border-gray-200 rounded-xl p-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <div>
-                            <h2 className="text-lg font-semibold text-gray-900">
-                                Flight Parameter Overview
-                            </h2>
-                            <p className="text-sm text-gray-500">
-                                Time series visualization of recorder values for the selected
-                                parameters.
+                <div className="space-y-6">
+                    <section className="bg-white border border-gray-200 rounded-xl p-6">
+                        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-gray-900">
+                                    Flight Parameter Overview
+                                </h2>
+                                <p className="text-sm text-gray-500">
+                                    Time series visualization of recorder values for the selected
+                                    parameters.
+                                </p>
+                            </div>
+                            <p className="text-xs text-gray-500">
+                                Charts resize with available space for clearer trend comparisons.
                             </p>
                         </div>
-                    </div>
 
-                    <div className="space-y-4 max-h-[32rem] overflow-y-auto pr-1">
-                        {renderCategoryCharts()}
-                    </div>
-                </section>
+                        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                            {renderCategoryCharts()}
+                        </div>
+                    </section>
 
-                <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-5">
-                    <div className="space-y-1">
-                        <h2 className="text-lg font-semibold text-gray-900">Anomaly Detection</h2>
-                        <p className="text-sm text-gray-500">
-                            Use the parameter selector to control both the charts and anomaly analysis. If nothing is
-                            selected, all available numeric parameters will be included automatically.
-                        </p>
-                    </div>
+                    <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-5">
+                        <div className="space-y-1">
+                            <h2 className="text-lg font-semibold text-gray-900">Anomaly Detection</h2>
+                            <p className="text-sm text-gray-500">
+                                Detection uses the parameters selected in the left panel. If none are selected, all available
+                                numeric parameters are included automatically.
+                            </p>
+                        </div>
 
-                    <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 space-y-2 text-sm text-gray-700">
-                        <p>
-                            Detection runs on the parameters selected in the left panel. If none are selected, all available
-                            numeric parameters will be analyzed.
-                        </p>
-                        <p className="text-xs text-gray-500">
-                            Current scope: {activeDetectionParameters.length > 0
-                                ? formatParameterList(activeDetectionParameters)
-                                : "No numeric parameters were detected in the uploaded file."}
-                        </p>
-                    </div>
+                        <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                            <p className="text-xs uppercase tracking-wide text-gray-500">Current scope</p>
+                            <p className="font-semibold text-gray-800">
+                                {activeDetectionParameters.length > 0
+                                    ? formatParameterList(activeDetectionParameters)
+                                    : "No numeric parameters were detected in the uploaded file."}
+                            </p>
+                        </div>
 
-                    <div className="space-y-1">
-                        <label className="text-sm font-semibold text-gray-800" htmlFor="algorithm-select">
-                            Algorithm
-                        </label>
-                        <select
-                            id="algorithm-select"
-                            value={selectedAlgorithm}
-                            onChange={(event) => setSelectedAlgorithm(event.target.value)}
-                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                        >
-                            <option value="zscore">Z-score (default)</option>
-                            <option value="iqr">IQR</option>
-                            <option value="isolation_forest">Isolation Forest (beta)</option>
-                        </select>
-                    </div>
+                        <div className="space-y-1">
+                            <label className="text-sm font-semibold text-gray-800" htmlFor="algorithm-select">
+                                Algorithm
+                            </label>
+                            <select
+                                id="algorithm-select"
+                                value={selectedAlgorithm}
+                                onChange={(event) => setSelectedAlgorithm(event.target.value)}
+                                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                            >
+                                <option value="zscore">Z-score (default)</option>
+                                <option value="iqr">IQR</option>
+                                <option value="isolation_forest">Isolation Forest (beta)</option>
+                            </select>
+                        </div>
 
-                    <button
-                        type="button"
-                        onClick={handleRunDetection}
-                        disabled={isRunningDetection || availableParameters.length === 0}
-                        className="w-full inline-flex justify-center items-center px-4 py-2 rounded-lg text-sm font-semibold text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70"
-                        style={{ backgroundColor: "#019348" }}
-                    >
-                        {isRunningDetection ? "Running..." : "Run Anomaly Detection"}
-                    </button>
-
-                    {anomalyError && (
-                        <p className="text-sm text-red-600">{anomalyError}</p>
-                    )}
-
-                    <div className="text-xs text-gray-500 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-3">
-                        Machine learning output will populate anomaly summaries and visualizations once integrated with the
-                        detection pipeline.
-                    </div>
-
-                    {(isRunningDetection || anomalyResult || anomalyError) && (
-                        <div className="rounded-lg border border-gray-200 bg-white/60 p-4 space-y-3">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-sm font-semibold text-gray-800">
-                                        Detection Summary
-                                    </p>
-                                    <p className="text-xs text-gray-500">
-                                        Latest run for {selectedCase?.id || caseNumber || "current case"}
-                                    </p>
-                                </div>
-                                {isRunningDetection && (
-                                    <span className="text-xs font-semibold text-emerald-700">
-                                        Running...
-                                    </span>
-                                )}
+                        {anomalyError && (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                                {anomalyError}
                             </div>
+                        )}
 
-                            {anomalyError && (
-                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                                    {anomalyError}
-                                </div>
-                            )}
-
-                            {!anomalyError && !anomalyResult && isRunningDetection && (
-                                <p className="text-sm text-gray-600">
-                                    Running anomaly detection. This may take a few moments.
-                                </p>
-                            )}
-
-                            {!anomalyError && anomalyResult && (
-                                <>
-                                    <div className="grid grid-cols-2 gap-3 text-sm">
-                                        <div className="rounded-lg bg-gray-50 px-3 py-2">
-                                            <p className="text-xs text-gray-500">Total rows</p>
-                                            <p className="text-base font-semibold text-gray-900">
-                                                {totalRows ?? "—"}
-                                            </p>
-                                        </div>
-                                        <div className="rounded-lg bg-gray-50 px-3 py-2">
-                                            <p className="text-xs text-gray-500">Anomalies</p>
-                                            <p className="text-base font-semibold text-gray-900">
-                                                {anomalyCount ?? sampleRows.length ?? "—"}
-                                            </p>
-                                        </div>
+                        {(isRunningDetection || anomalyResult || anomalyError) && (
+                            <div className="rounded-lg border border-gray-200 bg-white/60 p-4 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className="text-sm font-semibold text-gray-800">Detection Summary</p>
+                                        <p className="text-xs text-gray-500">
+                                            Latest run for {selectedCase?.id || caseNumber || "current case"}
+                                        </p>
                                     </div>
+                                    {isRunningDetection && (
+                                        <span className="text-xs font-semibold text-emerald-700">Running...</span>
+                                    )}
+                                </div>
 
-                                    {algorithmUsed && (
-                                        <p className="text-xs text-gray-500 mt-2">
-                                            Algorithm: {" "}
-                                            <span className="font-semibold text-gray-700">
-                                                {algorithmUsed}
+                                {anomalyResult && (
+                                    <>
+                                        <p className="text-sm text-gray-700">
+                                            <span className="text-2xl font-bold text-emerald-600">
+                                                {typeof anomalyCount === "number"
+                                                    ? anomalyCount.toLocaleString()
+                                                    : "—"}
+                                            </span>
+                                            <span className="ml-2 text-xs uppercase tracking-wide text-gray-500">
+                                                anomalies detected
                                             </span>
                                         </p>
-                                    )}
 
-                                    {topAnomalyParameters.length > 0 && (
-                                        <div className="space-y-1 mt-2">
-                                            <p className="text-xs font-semibold text-gray-700">
-                                                Parameters with most anomalies
-                                            </p>
-                                            <ul className="text-sm text-gray-700 space-y-1">
-                                                {topAnomalyParameters.map(({ name, count }) => (
-                                                    <li
-                                                        key={`${name}-${count}`}
-                                                        className="flex items-center justify-between"
-                                                    >
-                                                        <span>{name}</span>
-                                                        <span className="text-xs text-gray-500">
-                                                            {count} {count === 1 ? "anomaly" : "anomalies"}
-                                                        </span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
+                                        <p className="text-xs text-gray-500">
+                                            <span className="font-semibold text-gray-800">Algorithm:</span>
+                                            <span className="ml-1">
+                                                {algorithmDisplayNames[algorithmUsed] || algorithmUsed || "Unknown"}
+                                            </span>
+                                            <span className="ml-3 font-semibold text-gray-800">Total rows:</span>
+                                            <span className="ml-1 text-gray-700">
+                                                {typeof totalRows === "number" ? totalRows.toLocaleString() : "—"}
+                                            </span>
+                                        </p>
 
-                                    {noAnomaliesDetected && (
-                                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                                            No anomalies detected for the selected parameters.
-                                        </div>
-                                    )}
-
-                                    {!noAnomaliesDetected && (
-                                        <div className="space-y-2">
-                                            <p className="text-xs font-semibold text-gray-700">
-                                                Sample anomalous rows
-                                            </p>
-                                            {sampleRows.length > 0 ? (
-                                                <ul className="space-y-2">
-                                                    {sampleRows.slice(0, 5).map((row, index) => {
-                                                        const rowLabel =
-                                                            row?.rowIndex ||
-                                                            row?.row_number ||
-                                                            row?.index ||
-                                                            row?.row ||
-                                                            index + 1;
-                                                        const severity = row?.severity || row?.score;
-
-                                                        return (
-                                                            <li
-                                                                key={`${rowLabel}-${index}`}
-                                                                className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
-                                                            >
-                                                                <div className="flex items-center justify-between">
-                                                                    <span className="font-semibold text-gray-800">
-                                                                        Row {rowLabel}
-                                                                    </span>
-                                                                    {severity && (
-                                                                        <span className="text-xs rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
-                                                                            {severity}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <p className="text-xs text-gray-600 break-words">
-                                                                    {renderSampleValues(row)}
-                                                                </p>
-                                                            </li>
-                                                        );
-                                                    })}
-                                                </ul>
-                                            ) : (
-                                                <p className="text-sm text-gray-500">
-                                                    No sample anomalies returned for this run.
+                                        {topAnomalyParameters.length > 0 && (
+                                            <div className="space-y-1 mt-2">
+                                                <p className="text-xs font-semibold text-gray-700">
+                                                    Parameters with most anomalies
                                                 </p>
-                                            )}
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
-                    )}
-                </section>
-            </div>
+                                                <ul className="text-sm text-gray-700 space-y-1">
+                                                    {topAnomalyParameters.map(({ name, count }) => (
+                                                        <li
+                                                            key={`${name}-${count}`}
+                                                            className="flex items-center justify-between"
+                                                        >
+                                                            <span>{name}</span>
+                                                            <span className="text-xs text-gray-500">
+                                                                {count} {count === 1 ? "anomaly" : "anomalies"}
+                                                            </span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+
+                                        {noAnomaliesDetected && (
+                                            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                                                No anomalies detected for the selected parameters.
+                                            </div>
+                                        )}
+
+                                        {!noAnomaliesDetected && (
+                                            <div className="space-y-2">
+                                                <p className="text-xs font-semibold text-gray-700">Sample anomalous rows</p>
+                                                {sampleRows.length > 0 ? (
+                                                    <ul className="space-y-2">
+                                                        {sampleRows.slice(0, 5).map((row, index) => {
+                                                            const rowLabel =
+                                                                row?.rowIndex ||
+                                                                row?.row_number ||
+                                                                row?.index ||
+                                                                row?.row ||
+                                                                index + 1;
+                                                            const severity = row?.severity || row?.score;
+
+                                                            return (
+                                                                <li
+                                                                    key={`${rowLabel}-${index}`}
+                                                                    className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
+                                                                >
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="font-semibold text-gray-800">
+                                                                            Row {rowLabel}
+                                                                        </span>
+                                                                        {severity && (
+                                                                            <span className="text-xs rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
+                                                                                {severity}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <p className="text-xs text-gray-600 break-words">
+                                                                        {renderSampleValues(row)}
+                                                                    </p>
+                                                                </li>
+                                                            );
+                                                        })}
+                                                    </ul>
+                                                ) : (
+                                                    <p className="text-sm text-gray-500">No sample anomalies returned for this run.</p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </section>
+                </div>
 
             <section className="bg-white border border-gray-200 rounded-xl p-6">
                 <div className="flex items-center justify-between mb-4">
