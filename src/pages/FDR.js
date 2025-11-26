@@ -909,7 +909,10 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         setAnomalyResult(null);
 
         try {
-            const result = await runFdrAnomalyDetection(caseNumber);
+            const result = await runFdrAnomalyDetection(
+                caseNumber,
+                detectionParameters
+            );
             setAnomalyResult(result);
             setWorkflowStage((prev) =>
                 prev === "analysis" ? "detectionComplete" : prev
