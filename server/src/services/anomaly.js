@@ -89,6 +89,7 @@ const detectAnomaliesZScore = (headers, rows, stats) => {
   rows.forEach((row, index) => {
     let isAnomalous = false;
     const numericValues = {};
+    const triggeredParameters = [];
 
     headers.forEach((header) => {
       const value = toNumber(row[header]);
@@ -103,11 +104,12 @@ const detectAnomaliesZScore = (headers, rows, stats) => {
 
       if (stdDev === 0 ? value !== mean : value < lowerBound || value > upperBound) {
         isAnomalous = true;
+        triggeredParameters.push(header);
       }
     });
 
     if (isAnomalous) {
-      anomalies.push({ rowIndex: index, values: numericValues });
+      anomalies.push({ rowIndex: index, values: numericValues, parameters: triggeredParameters, row });
     }
   });
 
@@ -155,6 +157,7 @@ const detectAnomaliesIqr = (headers, rows, stats) => {
   rows.forEach((row, index) => {
     let isAnomalous = false;
     const numericValues = {};
+    const triggeredParameters = [];
 
     headers.forEach((header) => {
       const value = toNumber(row[header]);
@@ -169,11 +172,12 @@ const detectAnomaliesIqr = (headers, rows, stats) => {
 
       if (value < lowerBound || value > upperBound) {
         isAnomalous = true;
+        triggeredParameters.push(header);
       }
     });
 
     if (isAnomalous) {
-      anomalies.push({ rowIndex: index, values: numericValues });
+      anomalies.push({ rowIndex: index, values: numericValues, parameters: triggeredParameters, row });
     }
   });
 
@@ -261,12 +265,42 @@ const analyzeFdrForCase = async (caseNumber, options = {}) => {
 
   const stats = calculateColumnStats(analyzedHeaders, rows);
   const anomalies = detectAnomalies(analyzedHeaders, rows, stats);
+  const totalRows = rows.length;
+  const anomalyCount = anomalies.length;
+  const anomalyPercentage = totalRows > 0 ? (anomalyCount / totalRows) * 100 : 0;
+
+  const parameterCounts = anomalies.reduce((acc, item) => {
+    const parameters = Array.isArray(item.parameters) && item.parameters.length > 0
+      ? item.parameters
+      : Object.keys(item.values || {});
+
+    parameters.forEach((parameter) => {
+      if (!parameter) return;
+      acc[parameter] = (acc[parameter] || 0) + 1;
+    });
+    return acc;
+  }, {});
+
+  const topParameters = Object.entries(parameterCounts)
+    .map(([parameter, count]) => ({ parameter, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  const sampleRows = anomalies.slice(0, 10).map((item) => ({
+    rowIndex: item.rowIndex,
+    parameters: item.parameters,
+    values: item.values,
+    row: item.row,
+  }));
 
   return {
-    totalRows: rows.length,
-    anomalyCount: anomalies.length,
+    totalRows,
+    anomalyCount,
+    anomalyPercentage,
     perColumnStats: stats,
-    examples: anomalies.slice(0, 20),
+    anomalies,
+    sampleRows,
+    topParameters,
     algorithm,
   };
 };
