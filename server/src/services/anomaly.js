@@ -27,6 +27,15 @@ const parseCsv = (text) => {
   return { headers, rows };
 };
 
+function toNumber(value) {
+  if (value === null || value === undefined) return NaN;
+  const cleaned = String(value)
+    .trim()
+    .replace(/,/g, '');
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : NaN;
+}
+
 const percentile = (values, percentileRank) => {
   if (values.length === 0) return null;
 
@@ -48,12 +57,14 @@ const calculateColumnStatsZScore = (headers, rows) => {
 
   headers.forEach((header) => {
     const numericValues = rows
-      .map((row) => Number(row[header]))
+      .map((row) => toNumber(row[header]))
       .filter((value) => !Number.isNaN(value));
 
     if (numericValues.length === 0) {
       return;
     }
+
+    console.log('[anomaly] numeric column:', header, 'count:', numericValues.length);
 
     const mean = numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
     const variance =
@@ -80,7 +91,7 @@ const detectAnomaliesZScore = (headers, rows, stats) => {
     const numericValues = {};
 
     headers.forEach((header) => {
-      const value = Number(row[header]);
+      const value = toNumber(row[header]);
       const columnStats = stats[header];
 
       if (!columnStats || Number.isNaN(value)) {
@@ -108,12 +119,14 @@ const calculateColumnStatsIqr = (headers, rows) => {
 
   headers.forEach((header) => {
     const numericValues = rows
-      .map((row) => Number(row[header]))
+      .map((row) => toNumber(row[header]))
       .filter((value) => !Number.isNaN(value));
 
     if (numericValues.length === 0) {
       return;
     }
+
+    console.log('[anomaly] numeric column:', header, 'count:', numericValues.length);
 
     const q1 = percentile(numericValues, 0.25);
     const q3 = percentile(numericValues, 0.75);
@@ -144,7 +157,7 @@ const detectAnomaliesIqr = (headers, rows, stats) => {
     const numericValues = {};
 
     headers.forEach((header) => {
-      const value = Number(row[header]);
+      const value = toNumber(row[header]);
       const columnStats = stats[header];
 
       if (!columnStats || Number.isNaN(value)) {
