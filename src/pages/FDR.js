@@ -484,6 +484,13 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         () => new Set(availableParameters || []),
         [availableParameters]
     );
+    const activeDetectionParameters = useMemo(
+        () =>
+            selectedParameters.length > 0
+                ? selectedParameters
+                : availableParameters,
+        [availableParameters, selectedParameters]
+    );
     const sampleRows = useMemo(() => {
         if (!anomalyResult) {
             return [];
@@ -777,10 +784,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     };
 
     const handleRunDetection = async () => {
-        const detectionParameters =
-            selectedParameters.length > 0
-                ? selectedParameters
-                : availableParameters;
+        const detectionParameters = activeDetectionParameters;
 
         if (detectionParameters.length === 0 || !caseNumber) {
             return;
@@ -826,6 +830,55 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         sampleRows.length ??
         null;
     const noAnomaliesDetected = Boolean(anomalyResult) && anomalyCount === 0;
+    const topAnomalyParameters = useMemo(() => {
+        if (!anomalyResult) {
+            return [];
+        }
+
+        const counts = new Map();
+        const addCount = (name, value = 1) => {
+            if (!name) {
+                return;
+            }
+
+            const displayName = getParameterLabel(name) || name;
+            const increment = Number.isFinite(value) ? value : 1;
+            counts.set(displayName, (counts.get(displayName) || 0) + increment);
+        };
+
+        const parameterBreakdown =
+            anomalyResult.parameterCounts ||
+            anomalyResult.parameter_counts ||
+            anomalyResult.parameterBreakdown ||
+            anomalyResult.parameter_breakdown;
+
+        if (parameterBreakdown) {
+            if (Array.isArray(parameterBreakdown)) {
+                parameterBreakdown.forEach((item) =>
+                    addCount(
+                        item?.parameter || item?.name || item?.field,
+                        item?.count || item?.anomalies || item?.total
+                    )
+                );
+            } else if (typeof parameterBreakdown === "object") {
+                Object.entries(parameterBreakdown).forEach(([key, value]) => {
+                    addCount(key, Number(value));
+                });
+            }
+        }
+
+        if (Array.isArray(anomalyResult.anomalies)) {
+            anomalyResult.anomalies.forEach((item) =>
+                addCount(item?.parameter || item?.field || item?.metric)
+            );
+        }
+
+        return Array.from(counts.entries())
+            .filter(([, count]) => count > 0)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([name, count]) => ({ name, count }));
+    }, [anomalyResult]);
 
     const renderSampleValues = (row) => {
         if (!row || typeof row !== "object") {
@@ -1493,27 +1546,20 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     <div className="space-y-1">
                         <h2 className="text-lg font-semibold text-gray-900">Anomaly Detection</h2>
                         <p className="text-sm text-gray-500">
-                            Run detection directly on the parameters you&apos;re charting. If no parameters are selected, all
-                            available recorder fields will be analyzed automatically.
+                            Use the parameter selector to control both the charts and anomaly analysis. If nothing is
+                            selected, all available numeric parameters will be included automatically.
                         </p>
                     </div>
 
                     <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 space-y-2 text-sm text-gray-700">
-                        <p className="font-semibold text-gray-800">Parameters in scope</p>
                         <p>
-                            {(
-                                selectedParameters.length > 0 ? selectedParameters : availableParameters
-                            ).length > 0
-                                ? formatParameterList(
-                                      selectedParameters.length > 0
-                                          ? selectedParameters
-                                          : availableParameters
-                                  )
-                                : "No numeric parameters were detected in the uploaded file."}
+                            Detection runs on the parameters selected in the left panel. If none are selected, all available
+                            numeric parameters will be analyzed.
                         </p>
                         <p className="text-xs text-gray-500">
-                            Charts only render the parameters you toggle on. Detection will always use the full set of parsed
-                            parameters so you don&apos;t have to choose thresholds first.
+                            Current scope: {activeDetectionParameters.length > 0
+                                ? formatParameterList(activeDetectionParameters)
+                                : "No numeric parameters were detected in the uploaded file."}
                         </p>
                     </div>
 
@@ -1606,6 +1652,27 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                 {algorithmUsed}
                                             </span>
                                         </p>
+                                    )}
+
+                                    {topAnomalyParameters.length > 0 && (
+                                        <div className="space-y-1 mt-2">
+                                            <p className="text-xs font-semibold text-gray-700">
+                                                Parameters with most anomalies
+                                            </p>
+                                            <ul className="text-sm text-gray-700 space-y-1">
+                                                {topAnomalyParameters.map(({ name, count }) => (
+                                                    <li
+                                                        key={`${name}-${count}`}
+                                                        className="flex items-center justify-between"
+                                                    >
+                                                        <span>{name}</span>
+                                                        <span className="text-xs text-gray-500">
+                                                            {count} {count === 1 ? "anomaly" : "anomalies"}
+                                                        </span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
                                     )}
 
                                     {noAnomaliesDetected && (
