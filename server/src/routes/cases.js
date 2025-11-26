@@ -25,8 +25,9 @@ router.post('/:caseNumber/fdr/analyze', async (req, res, next) => {
     const parameters = Array.isArray(req.body?.parameters)
       ? req.body.parameters
       : undefined;
+    const { algorithm } = req.body || {};
 
-    const result = await analyzeFdrForCase(req.params.caseNumber, { parameters });
+    const result = await analyzeFdrForCase(req.params.caseNumber, { parameters, algorithm });
     res.json(result);
   } catch (error) {
     next(error);
