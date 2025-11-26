@@ -1,5 +1,6 @@
 const { findCaseByNumber } = require('./cases');
 const { downloadObjectAsString } = require('./storage');
+const fdrParameterMap = require('../config/fdr-parameter-map');
 
 const parseCsv = (text) => {
   const lines = (text || '')
@@ -204,6 +205,16 @@ const getAlgorithmHandlers = (algorithmName) => {
   }
 };
 
+const toCsvHeader = (parameterKey) => {
+  const normalizedKey = typeof parameterKey === 'string' ? parameterKey.trim() : '';
+  if (!normalizedKey) {
+    return '';
+  }
+
+  const metadata = fdrParameterMap[normalizedKey.toUpperCase()];
+  return metadata?.csvKey || normalizedKey;
+};
+
 const analyzeFdrForCase = async (caseNumber, options = {}) => {
   const caseData = await findCaseByNumber(caseNumber);
   if (!caseData) {
@@ -228,9 +239,7 @@ const analyzeFdrForCase = async (caseNumber, options = {}) => {
   const algorithm = normalizeAlgorithm(options.algorithm);
   const { calculateColumnStats, detectAnomalies } = getAlgorithmHandlers(algorithm);
   const requestedParameters = Array.isArray(options.parameters)
-    ? options.parameters
-        .map((param) => (typeof param === 'string' ? param.trim() : ''))
-        .filter(Boolean)
+    ? options.parameters.map((param) => toCsvHeader(param)).filter(Boolean)
     : [];
   const parameterSet = requestedParameters.length > 0 ? new Set(requestedParameters) : null;
   const analyzedHeaders = parameterSet

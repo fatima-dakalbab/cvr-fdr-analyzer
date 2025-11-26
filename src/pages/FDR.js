@@ -17,6 +17,7 @@ import useRecentCases from "../hooks/useRecentCases";
 import { buildCasePreview } from "../utils/caseDisplay";
 import { evaluateModuleReadiness } from "../utils/analysisAvailability";
 import { fetchAttachmentFromObjectStore } from "../utils/storage";
+import fdrParameterMap from "../config/fdr-parameter-map";
 
 const defaultCaseOptions = [
     {
@@ -45,35 +46,184 @@ const defaultCaseOptions = [
     },
 ];
 
-const parameterGroups = [
+const buildParameterGroups = (entries) => {
+    const groups = entries.reduce((acc, entry) => {
+        const groupName = entry.group || "Other";
+        if (!acc[groupName]) {
+            acc[groupName] = [];
+        }
+
+        acc[groupName].push(entry.key);
+        return acc;
+    }, {});
+
+    return Object.entries(groups)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([category, parameters]) => ({
+            category,
+            parameters: parameters.sort((a, b) => {
+                const labelA = fdrParameterMap[a]?.label || a;
+                const labelB = fdrParameterMap[b]?.label || b;
+                return labelA.localeCompare(labelB);
+            }),
+        }));
+};
+
+const colorPalette = [
+    "#059669",
+    "#0ea5e9",
+    "#f59e0b",
+    "#6366f1",
+    "#334155",
+    "#10b981",
+    "#34d399",
+    "#22d3ee",
+    "#0284c7",
+    "#a855f7",
+    "#f97316",
+    "#ef4444",
+    "#3b82f6",
+    "#14b8a6",
+    "#f472b6",
+];
+
+const parameterEntries = Object.entries(fdrParameterMap).map(
+    ([key, metadata], index) => ({
+        key,
+        ...metadata,
+        color: colorPalette[index % colorPalette.length],
+    })
+);
+
+const parameterMetadata = parameterEntries.reduce((acc, entry) => {
+    acc[entry.key] = entry;
+    return acc;
+}, {});
+
+const parameterGroups = buildParameterGroups(parameterEntries);
+const defaultSelectedParameters = ["ALTITUDE", "AIRSPEED", "ENGINE_RPM_L"].filter(
+    (key) => parameterMetadata[key]
+);
+const parameterKeys = Object.keys(parameterMetadata);
+const getParameterLabel = (key) => parameterMetadata[key]?.label || key;
+const formatParameterList = (keys = []) =>
+    keys
+        .map((key) => getParameterLabel(key))
+        .filter(Boolean)
+        .join(", ");
+
+const sampleNormalizedRows = [
     {
-        category: "Flight Dynamics",
-        parameters: [
-            "Altitude",
-            "Airspeed",
-            "Pitch Angle",
-            "Roll Angle",
-            "Heading",
-        ],
+        time: "00:00",
+        ALTITUDE: 1200,
+        PRESSURE_ALTITUDE: 1185,
+        AIRSPEED: 145,
+        VERTICAL_SPEED: 450,
+        HEADING: 92,
+        PERCENT_POWER: 68,
+        ENGINE_RPM_L: 2200,
+        ENGINE_RPM_R: 2180,
+        FUEL_FLOW_1: 8.2,
+        FUEL_LEVEL_L: 46,
+        FUEL_LEVEL_R: 47,
+        OAT: 18,
+        LATITUDE: 24.45,
+        LONGITUDE: 54.38,
     },
     {
-        category: "Engines",
-        parameters: [
-            "Engine 1 N1",
-            "Engine 1 EGT",
-            "Engine 2 N1",
-            "Engine 2 EGT",
-        ],
+        time: "00:10",
+        ALTITUDE: 1800,
+        PRESSURE_ALTITUDE: 1782,
+        AIRSPEED: 152,
+        VERTICAL_SPEED: 520,
+        HEADING: 94,
+        PERCENT_POWER: 70,
+        ENGINE_RPM_L: 2250,
+        ENGINE_RPM_R: 2230,
+        FUEL_FLOW_1: 8.6,
+        FUEL_LEVEL_L: 45.6,
+        FUEL_LEVEL_R: 46.8,
+        OAT: 17.5,
+        LATITUDE: 24.46,
+        LONGITUDE: 54.39,
     },
     {
-        category: "Flight Controls",
-        parameters: [
-            "Flap Position",
-            "Spoiler Deployment",
-            "Rudder Position",
-            "Elevator Position",
-        ],
+        time: "00:20",
+        ALTITUDE: 2400,
+        PRESSURE_ALTITUDE: 2388,
+        AIRSPEED: 160,
+        VERTICAL_SPEED: 580,
+        HEADING: 96,
+        PERCENT_POWER: 73,
+        ENGINE_RPM_L: 2310,
+        ENGINE_RPM_R: 2290,
+        FUEL_FLOW_1: 9.1,
+        FUEL_LEVEL_L: 45.1,
+        FUEL_LEVEL_R: 46.2,
+        OAT: 17,
+        LATITUDE: 24.47,
+        LONGITUDE: 54.41,
     },
+    {
+        time: "00:30",
+        ALTITUDE: 2900,
+        PRESSURE_ALTITUDE: 2885,
+        AIRSPEED: 166,
+        VERTICAL_SPEED: 540,
+        HEADING: 99,
+        PERCENT_POWER: 75,
+        ENGINE_RPM_L: 2360,
+        ENGINE_RPM_R: 2340,
+        FUEL_FLOW_1: 9.4,
+        FUEL_LEVEL_L: 44.7,
+        FUEL_LEVEL_R: 45.9,
+        OAT: 16.4,
+        LATITUDE: 24.48,
+        LONGITUDE: 54.42,
+    },
+    {
+        time: "00:40",
+        ALTITUDE: 3200,
+        PRESSURE_ALTITUDE: 3190,
+        AIRSPEED: 170,
+        VERTICAL_SPEED: 510,
+        HEADING: 101,
+        PERCENT_POWER: 76,
+        ENGINE_RPM_L: 2385,
+        ENGINE_RPM_R: 2365,
+        FUEL_FLOW_1: 9.6,
+        FUEL_LEVEL_L: 44.2,
+        FUEL_LEVEL_R: 45.5,
+        OAT: 16,
+        LATITUDE: 24.49,
+        LONGITUDE: 54.43,
+    },
+    {
+        time: "00:50",
+        ALTITUDE: 3600,
+        PRESSURE_ALTITUDE: 3592,
+        AIRSPEED: 176,
+        VERTICAL_SPEED: 470,
+        HEADING: 102,
+        PERCENT_POWER: 78,
+        ENGINE_RPM_L: 2410,
+        ENGINE_RPM_R: 2388,
+        FUEL_FLOW_1: 9.8,
+        FUEL_LEVEL_L: 43.8,
+        FUEL_LEVEL_R: 45.1,
+        OAT: 15.6,
+        LATITUDE: 24.5,
+        LONGITUDE: 54.44,
+    },
+];
+
+const detectionTrendKeys = [
+    "ALTITUDE",
+    "AIRSPEED",
+    "PERCENT_POWER",
+    "ENGINE_RPM_L",
+    "ENGINE_RPM_R",
+    "VERTICAL_SPEED",
 ];
 
 const algorithmDisplayNames = {
@@ -81,210 +231,6 @@ const algorithmDisplayNames = {
     iqr: "IQR",
     isolation_forest: "Isolation Forest",
 };
-
-const flightDynamicsSamples = [
-    {
-        time: "00:00",
-        altitude: 1200,
-        airspeed: 145,
-        pitch: 1.2,
-        roll: -0.8,
-        heading: 92,
-    },
-    {
-        time: "00:10",
-        altitude: 1800,
-        airspeed: 152,
-        pitch: 1.4,
-        roll: -0.4,
-        heading: 94,
-    },
-    {
-        time: "00:20",
-        altitude: 2400,
-        airspeed: 160,
-        pitch: 1.6,
-        roll: 0,
-        heading: 96,
-    },
-    {
-        time: "00:30",
-        altitude: 2900,
-        airspeed: 166,
-        pitch: 1.9,
-        roll: 0.3,
-        heading: 99,
-    },
-    {
-        time: "00:40",
-        altitude: 3200,
-        airspeed: 170,
-        pitch: 2.1,
-        roll: 0.6,
-        heading: 101,
-    },
-    {
-        time: "00:50",
-        altitude: 3600,
-        airspeed: 176,
-        pitch: 2.4,
-        roll: 0.2,
-        heading: 102,
-    },
-    {
-        time: "01:00",
-        altitude: 4000,
-        airspeed: 182,
-        pitch: 2.7,
-        roll: -0.1,
-        heading: 104,
-    },
-];
-
-const engineSamples = [
-    {
-        time: "00:00",
-        engine1N1: 68,
-        engine1EGT: 540,
-        engine2N1: 67,
-        engine2EGT: 534,
-    },
-    {
-        time: "00:10",
-        engine1N1: 70,
-        engine1EGT: 553,
-        engine2N1: 69,
-        engine2EGT: 546,
-    },
-    {
-        time: "00:20",
-        engine1N1: 72,
-        engine1EGT: 565,
-        engine2N1: 71,
-        engine2EGT: 559,
-    },
-    {
-        time: "00:30",
-        engine1N1: 74,
-        engine1EGT: 579,
-        engine2N1: 73,
-        engine2EGT: 572,
-    },
-    {
-        time: "00:40",
-        engine1N1: 75,
-        engine1EGT: 586,
-        engine2N1: 74,
-        engine2EGT: 580,
-    },
-    {
-        time: "00:50",
-        engine1N1: 77,
-        engine1EGT: 595,
-        engine2N1: 76,
-        engine2EGT: 588,
-    },
-    {
-        time: "01:00",
-        engine1N1: 79,
-        engine1EGT: 604,
-        engine2N1: 78,
-        engine2EGT: 597,
-    },
-];
-
-const flightControlsSamples = [
-    {
-        time: "00:00",
-        flapPosition: 5,
-        spoilerDeployment: 0,
-        rudderPosition: -1.5,
-        elevatorPosition: 1.1,
-    },
-    {
-        time: "00:10",
-        flapPosition: 10,
-        spoilerDeployment: 0,
-        rudderPosition: -1.1,
-        elevatorPosition: 1.3,
-    },
-    {
-        time: "00:20",
-        flapPosition: 12,
-        spoilerDeployment: 0,
-        rudderPosition: -0.6,
-        elevatorPosition: 1.5,
-    },
-    {
-        time: "00:30",
-        flapPosition: 15,
-        spoilerDeployment: 2,
-        rudderPosition: -0.3,
-        elevatorPosition: 1.8,
-    },
-    {
-        time: "00:40",
-        flapPosition: 18,
-        spoilerDeployment: 4,
-        rudderPosition: 0.1,
-        elevatorPosition: 2.1,
-    },
-    {
-        time: "00:50",
-        flapPosition: 20,
-        spoilerDeployment: 6,
-        rudderPosition: 0.4,
-        elevatorPosition: 2.4,
-    },
-    {
-        time: "01:00",
-        flapPosition: 22,
-        spoilerDeployment: 8,
-        rudderPosition: 0.2,
-        elevatorPosition: 2.6,
-    },
-];
-
-const defaultDetectionTrendSamples = [
-    { time: "00:00", altitude: 1200, speed: 145, engine: 68 },
-    { time: "00:10", altitude: 1800, speed: 152, engine: 70 },
-    { time: "00:20", altitude: 2400, speed: 160, engine: 72 },
-    { time: "00:30", altitude: 2900, speed: 166, engine: 74 },
-    { time: "00:40", altitude: 3200, speed: 170, engine: 75 },
-    { time: "00:50", altitude: 3600, speed: 176, engine: 77 },
-    { time: "01:00", altitude: 4000, speed: 182, engine: 79 },
-];
-
-const parameterConfig = {
-    Altitude: { key: "altitude", color: "#059669" },
-    Airspeed: { key: "airspeed", color: "#0ea5e9" },
-    "Pitch Angle": { key: "pitch", color: "#f59e0b" },
-    "Roll Angle": { key: "roll", color: "#6366f1" },
-    Heading: { key: "heading", color: "#334155" },
-    "Engine 1 N1": { key: "engine1N1", color: "#10b981" },
-    "Engine 1 EGT": { key: "engine1EGT", color: "#34d399" },
-    "Engine 2 N1": { key: "engine2N1", color: "#22d3ee" },
-    "Engine 2 EGT": { key: "engine2EGT", color: "#0284c7" },
-    "Flap Position": { key: "flapPosition", color: "#a855f7" },
-    "Spoiler Deployment": { key: "spoilerDeployment", color: "#f97316" },
-    "Rudder Position": { key: "rudderPosition", color: "#ef4444" },
-    "Elevator Position": { key: "elevatorPosition", color: "#3b82f6" },
-};
-
-const defaultCategorySamples = {
-    "Flight Dynamics": flightDynamicsSamples,
-    Engines: engineSamples,
-    "Flight Controls": flightControlsSamples,
-};
-
-const defaultParameterTableRows = [
-    { parameter: "Altitude", unit: "ft", min: 1200, max: 4000 },
-    { parameter: "Airspeed", unit: "kts", min: 145, max: 182 },
-    { parameter: "Pitch Angle", unit: "deg", min: -2.1, max: 4.5 },
-    { parameter: "Engine 1 N1", unit: "%", min: 62, max: 80 },
-    { parameter: "Engine 2 N1", unit: "%", min: 61, max: 79 },
-    { parameter: "Vertical Speed", unit: "ft/min", min: -300, max: 200 },
-];
 
 const detectionResultSummary = {
     anomaliesDetected: 3,
@@ -300,57 +246,6 @@ const detectionResultSummary = {
         { parameter: "Altitude deviation", time: "08:14:32", severity: "High" },
         { parameter: "Flap asymmetry", time: "08:16:51", severity: "Low" },
     ],
-};
-
-const parameterTableDefinitions = [
-    { parameter: "Altitude", unit: "ft", field: "altitude" },
-    { parameter: "Airspeed", unit: "kts", field: "airspeed" },
-    { parameter: "Pitch Angle", unit: "deg", field: "pitch" },
-    { parameter: "Engine 1 N1", unit: "%", field: "engine1N1" },
-    { parameter: "Engine 2 N1", unit: "%", field: "engine2N1" },
-    { parameter: "Vertical Speed", unit: "ft/min", field: "verticalSpeed" },
-];
-
-const defaultAvailableParameters = parameterGroups
-    .map((group) => group.parameters)
-    .flat();
-
-const CSV_COLUMN_MAP = {
-    altitude: ["GPS Altitude (feet)", "Pressure Altitude (ft)"],
-    airspeed: [
-        "Indicated Airspeed (knots)",
-        "Ground Speed (knots)",
-        "True Airspeed (knots)",
-    ],
-    pitch: ["Pitch (deg)"],
-    roll: ["Roll (deg)"],
-    heading: ["Magnetic Heading (deg)", "Ground Track (deg)"],
-    engine1N1: ["RPM L"],
-    engine2N1: ["RPM R"],
-    engine1EGT: ["EGT 1 (deg C)"],
-    engine2EGT: ["EGT 2 (deg C)"],
-    flapPosition: ["Glideslope (%)"],
-    spoilerDeployment: ["CDI Deflection (%)"],
-    rudderPosition: ["Turn Rate (deg/s)"],
-    elevatorPosition: ["Angle of Attack (%)"],
-    verticalSpeed: ["Vertical Speed (ft/min)"],
-};
-
-const PARAMETER_FIELD_MAP = {
-    Altitude: "altitude",
-    Airspeed: "airspeed",
-    "Pitch Angle": "pitch",
-    "Roll Angle": "roll",
-    Heading: "heading",
-    "Engine 1 N1": "engine1N1",
-    "Engine 1 EGT": "engine1EGT",
-    "Engine 2 N1": "engine2N1",
-    "Engine 2 EGT": "engine2EGT",
-    "Flap Position": "flapPosition",
-    "Spoiler Deployment": "spoilerDeployment",
-    "Rudder Position": "rudderPosition",
-    "Elevator Position": "elevatorPosition",
-    "Vertical Speed": "verticalSpeed",
 };
 
 const toNumber = (value) => {
@@ -458,8 +353,8 @@ const normalizeFdrRows = (csvText) => {
     return rawRows.map((row, index) => {
         const normalized = { time: resolveTimeLabel(row, index) };
 
-        Object.entries(CSV_COLUMN_MAP).forEach(([key, columnNames]) => {
-            const value = pickNumeric(row, columnNames);
+        parameterEntries.forEach(({ key, csvKey }) => {
+            const value = pickNumeric(row, [csvKey]);
             if (value !== null) {
                 normalized[key] = value;
             }
@@ -476,67 +371,36 @@ const truncateSeries = (series, maxPoints = 500) =>
     series.length > maxPoints ? series.slice(0, maxPoints) : series;
 
 const buildCategorySamplesFromRows = (rows) => {
-    const flightDynamics = truncateSeries(
-        rows
-            .map(({ time, altitude, airspeed, pitch, roll, heading }) => ({
-                time,
-                altitude,
-                airspeed,
-                pitch,
-                roll,
-                heading,
-            }))
-            .filter((row) => row.time && hasNumericValue(row, ["altitude", "airspeed", "pitch", "roll", "heading"])),
-        400
-    );
+    const groupedSamples = {};
 
-    const engines = truncateSeries(
-        rows
-            .map(({ time, engine1N1, engine2N1, engine1EGT, engine2EGT }) => ({
-                time,
-                engine1N1,
-                engine2N1,
-                engine1EGT,
-                engine2EGT,
-            }))
-            .filter((row) => row.time && hasNumericValue(row, ["engine1N1", "engine2N1", "engine1EGT", "engine2EGT"])),
-        400
-    );
+    parameterGroups.forEach(({ category, parameters }) => {
+        const samples = truncateSeries(
+            rows
+                .map((row) => {
+                    const entry = { time: row.time };
+                    parameters.forEach((parameter) => {
+                        if (row[parameter] !== undefined) {
+                            entry[parameter] = row[parameter];
+                        }
+                    });
+                    return entry;
+                })
+                .filter((row) => row.time && hasNumericValue(row, parameters)),
+            400
+        );
 
-    const flightControls = truncateSeries(
-        rows
-            .map(({ time, flapPosition, spoilerDeployment, rudderPosition, elevatorPosition }) => ({
-                time,
-                flapPosition,
-                spoilerDeployment,
-                rudderPosition,
-                elevatorPosition,
-            }))
-            .filter((row) =>
-                row.time &&
-                hasNumericValue(row, [
-                    "flapPosition",
-                    "spoilerDeployment",
-                    "rudderPosition",
-                    "elevatorPosition",
-                ])
-            ),
-        400
-    );
+        groupedSamples[category] = samples;
+    });
 
-    return {
-        "Flight Dynamics": flightDynamics,
-        Engines: engines,
-        "Flight Controls": flightControls,
-    };
+    return groupedSamples;
 };
 
 const deriveAvailableParameters = (rows) => {
     const available = new Set();
 
-    Object.entries(PARAMETER_FIELD_MAP).forEach(([label, field]) => {
-        if (rows.some((row) => hasNumericValue(row, [field]))) {
-            available.add(label);
+    parameterKeys.forEach((key) => {
+        if (rows.some((row) => hasNumericValue(row, [key]))) {
+            available.add(key);
         }
     });
 
@@ -544,10 +408,10 @@ const deriveAvailableParameters = (rows) => {
 };
 
 const buildParameterTable = (rows) =>
-    parameterTableDefinitions
+    parameterEntries
         .map((definition) => {
             const values = rows
-                .map((row) => row[definition.field])
+                .map((row) => row[definition.key])
                 .filter((value) => typeof value === "number" && !Number.isNaN(value));
 
             if (values.length === 0) {
@@ -558,7 +422,7 @@ const buildParameterTable = (rows) =>
             const max = Math.max(...values);
 
             return {
-                parameter: definition.parameter,
+                parameter: definition.label,
                 unit: definition.unit,
                 min: Number(min.toFixed(1)),
                 max: Number(max.toFixed(1)),
@@ -569,31 +433,32 @@ const buildParameterTable = (rows) =>
 const buildDetectionTrendSeries = (rows) =>
     truncateSeries(
         rows
-            .filter((row) =>
-                row.time &&
-                (row.altitude !== undefined ||
-                    row.airspeed !== undefined ||
-                    row.engine1N1 !== undefined ||
-                    row.engine2N1 !== undefined)
-            )
-            .map((row) => ({
-                time: row.time,
-                altitude: row.altitude ?? null,
-                speed: row.airspeed ?? null,
-                engine: row.engine1N1 ?? row.engine2N1 ?? null,
-            })),
+            .filter((row) => row.time && hasNumericValue(row, detectionTrendKeys))
+            .map((row) => {
+                const entry = { time: row.time };
+                detectionTrendKeys.forEach((key) => {
+                    if (row[key] !== undefined) {
+                        entry[key] = row[key];
+                    }
+                });
+                return entry;
+            }),
         240
     );
+
+const defaultCategorySamples = buildCategorySamplesFromRows(sampleNormalizedRows);
+const defaultAvailableParameters = Array.from(
+    deriveAvailableParameters(sampleNormalizedRows)
+);
+const defaultParameterTableRows = buildParameterTable(sampleNormalizedRows);
+const defaultDetectionTrendSamples = buildDetectionTrendSeries(sampleNormalizedRows);
 
 export default function FDR({ caseNumber: propCaseNumber }) {
     const { caseNumber: routeCaseNumber } = useParams();
     const caseNumber = propCaseNumber || routeCaseNumber;
     const navigate = useNavigate();
-    const [selectedParameters, setSelectedParameters] = useState([
-        "Altitude",
-        "Airspeed",
-        "Engine 1 N1",
-    ]);
+    const [selectedParameters, setSelectedParameters] =
+        useState(defaultSelectedParameters);
     const [selectedAlgorithm, setSelectedAlgorithm] = useState("zscore");
     const [selectedCase, setSelectedCase] = useState(null);
     const [isRunningDetection, setIsRunningDetection] = useState(false);
@@ -1012,11 +877,12 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         <>
                             <div className="flex flex-wrap gap-2">
                                 {activeParameters.map((parameter) => {
-                                    const config = parameterConfig[parameter];
+                                    const config = parameterMetadata[parameter];
                                     const badgeColor = config?.color ?? "#0f172a";
                                     const badgeBackground = config?.color
                                         ? `${config.color}1a`
                                         : "#e2e8f0";
+                                    const label = config?.label || parameter;
 
                                     return (
                                         <span
@@ -1027,7 +893,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                 color: badgeColor,
                                             }}
                                         >
-                                            {parameter}
+                                            {label}
                                         </span>
                                     );
                                 })}
@@ -1041,17 +907,21 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                         <YAxis stroke="#94a3b8" />
                                         <Tooltip />
                                         {activeParameters.map((parameter) => {
-                                            const config = parameterConfig[parameter];
-                                            return config ? (
+                                            const config = parameterMetadata[parameter];
+                                            const stroke = config?.color ?? "#0f172a";
+                                            const label = config?.label || parameter;
+
+                                            return (
                                                 <Line
-                                                    key={config.key}
+                                                    key={parameter}
                                                     type="monotone"
-                                                    dataKey={config.key}
-                                                    stroke={config.color}
+                                                    dataKey={parameter}
+                                                    name={label}
+                                                    stroke={stroke}
                                                     strokeWidth={2}
                                                     dot={false}
                                                 />
-                                            ) : null;
+                                            );
                                         })}
                                     </ComposedChart>
                                 </ResponsiveContainer>
@@ -1315,10 +1185,14 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                         <XAxis dataKey="time" stroke="#94a3b8" />
                                         <YAxis stroke="#94a3b8" />
                                         <Tooltip />
-                                        <Bar dataKey="engine" name="Deviation" fill="#d1fae5" />
+                                        <Bar
+                                            dataKey="PERCENT_POWER"
+                                            name="Percent Power"
+                                            fill="#d1fae5"
+                                        />
                                         <Line
                                             type="monotone"
-                                            dataKey="altitude"
+                                            dataKey="ALTITUDE"
                                             stroke="#10b981"
                                             strokeWidth={3}
                                             dot={false}
@@ -1326,7 +1200,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                         />
                                         <Line
                                             type="monotone"
-                                            dataKey="speed"
+                                            dataKey="AIRSPEED"
                                             stroke="#38bdf8"
                                             strokeWidth={3}
                                             strokeDasharray="6 4"
@@ -1555,7 +1429,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         </p>
                         <p className="text-sm font-medium text-gray-800">
                             {selectedParameters.length > 0
-                                ? selectedParameters.join(", ")
+                                ? formatParameterList(selectedParameters)
                                 : "No parameters selected"}
                         </p>
                     </div>
@@ -1567,6 +1441,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 <div className="space-y-2">
                                     {parameters.map((parameter) => {
                                         const isAvailable = availableParameterSet.has(parameter);
+                                        const label = getParameterLabel(parameter);
                                         return (
                                             <label
                                                 key={parameter}
@@ -1584,7 +1459,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                         isAvailable ? "" : "text-gray-400"
                                                     }
                                                 >
-                                                    {parameter}
+                                                    {label}
                                                     {!isAvailable && " (not in file)"}
                                                 </span>
                                             </label>
@@ -1629,7 +1504,11 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             {(
                                 selectedParameters.length > 0 ? selectedParameters : availableParameters
                             ).length > 0
-                                ? (selectedParameters.length > 0 ? selectedParameters : availableParameters).join(", ")
+                                ? formatParameterList(
+                                      selectedParameters.length > 0
+                                          ? selectedParameters
+                                          : availableParameters
+                                  )
                                 : "No numeric parameters were detected in the uploaded file."}
                         </p>
                         <p className="text-xs text-gray-500">
