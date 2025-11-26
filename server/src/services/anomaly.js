@@ -91,7 +91,7 @@ const findFdrAttachment = (caseData) => {
   return attachments.find((item) => (item?.type || '').toUpperCase() === 'FDR');
 };
 
-const analyzeFdrForCase = async (caseNumber) => {
+const analyzeFdrForCase = async (caseNumber, options = {}) => {
   const caseData = await findCaseByNumber(caseNumber);
   if (!caseData) {
     const error = new Error('Case not found');
@@ -112,8 +112,18 @@ const analyzeFdrForCase = async (caseNumber) => {
   });
 
   const { headers, rows } = parseCsv(csvText);
-  const stats = calculateColumnStats(headers, rows);
-  const anomalies = detectAnomalies(headers, rows, stats);
+  const requestedParameters = Array.isArray(options.parameters)
+    ? options.parameters
+        .map((param) => (typeof param === 'string' ? param.trim() : ''))
+        .filter(Boolean)
+    : [];
+  const parameterSet = requestedParameters.length > 0 ? new Set(requestedParameters) : null;
+  const analyzedHeaders = parameterSet
+    ? headers.filter((header) => parameterSet.has(header))
+    : headers;
+
+  const stats = calculateColumnStats(analyzedHeaders, rows);
+  const anomalies = detectAnomalies(analyzedHeaders, rows, stats);
 
   return {
     totalRows: rows.length,
