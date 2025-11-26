@@ -76,6 +76,12 @@ const parameterGroups = [
     },
 ];
 
+const algorithmDisplayNames = {
+    zscore: "Z-score",
+    iqr: "IQR",
+    isolation_forest: "Isolation Forest",
+};
+
 const flightDynamicsSamples = [
     {
         time: "00:00",
@@ -624,6 +630,20 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             anomalyResult.anomalies;
 
         return Array.isArray(rows) ? rows : [];
+    }, [anomalyResult]);
+    const algorithmUsed = useMemo(() => {
+        if (!anomalyResult?.algorithm) {
+            return null;
+        }
+
+        const normalized =
+            typeof anomalyResult.algorithm === "string"
+                ? anomalyResult.algorithm.toLowerCase()
+                : anomalyResult.algorithm;
+
+        return (
+            algorithmDisplayNames[normalized] || anomalyResult.algorithm || null
+        );
     }, [anomalyResult]);
     const { recentCases, loading: isRecentLoading, error: recentCasesError } =
         useRecentCases(3);
@@ -1699,6 +1719,15 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                             </p>
                                         </div>
                                     </div>
+
+                                    {algorithmUsed && (
+                                        <p className="text-xs text-gray-500 mt-2">
+                                            Algorithm: {" "}
+                                            <span className="font-semibold text-gray-700">
+                                                {algorithmUsed}
+                                            </span>
+                                        </p>
+                                    )}
 
                                     {noAnomaliesDetected && (
                                         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
