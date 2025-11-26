@@ -937,7 +937,9 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         anomalyResult?.anomalyCount ??
         anomalyResult?.anomalies?.length ??
         anomalyResult?.count ??
+        sampleRows.length ??
         null;
+    const noAnomaliesDetected = Boolean(anomalyResult) && anomalyCount === 0;
 
     const renderSampleValues = (row) => {
         if (!row || typeof row !== "object") {
@@ -1625,6 +1627,10 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         {isRunningDetection ? "Running..." : "Run Anomaly Detection"}
                     </button>
 
+                    {anomalyError && (
+                        <p className="text-sm text-red-600">{anomalyError}</p>
+                    )}
+
                     <div className="text-xs text-gray-500 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-3">
                         Machine learning output will populate anomaly summaries and visualizations once integrated with the
                         detection pipeline.
@@ -1677,49 +1683,57 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                         </div>
                                     </div>
 
-                                    <div className="space-y-2">
-                                        <p className="text-xs font-semibold text-gray-700">
-                                            Sample anomalous rows
-                                        </p>
-                                        {sampleRows.length > 0 ? (
-                                            <ul className="space-y-2">
-                                                {sampleRows.slice(0, 5).map((row, index) => {
-                                                    const rowLabel =
-                                                        row?.rowIndex ||
-                                                        row?.row_number ||
-                                                        row?.index ||
-                                                        row?.row ||
-                                                        index + 1;
-                                                    const severity = row?.severity || row?.score;
+                                    {noAnomaliesDetected && (
+                                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                                            No anomalies detected for the selected parameters.
+                                        </div>
+                                    )}
 
-                                                    return (
-                                                        <li
-                                                            key={`${rowLabel}-${index}`}
-                                                            className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
-                                                        >
-                                                            <div className="flex items-center justify-between">
-                                                                <span className="font-semibold text-gray-800">
-                                                                    Row {rowLabel}
-                                                                </span>
-                                                                {severity && (
-                                                                    <span className="text-xs rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
-                                                                        {severity}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            <p className="text-xs text-gray-600 break-words">
-                                                                {renderSampleValues(row)}
-                                                            </p>
-                                                        </li>
-                                                    );
-                                                })}
-                                            </ul>
-                                        ) : (
-                                            <p className="text-sm text-gray-500">
-                                                No sample anomalies returned for this run.
+                                    {!noAnomaliesDetected && (
+                                        <div className="space-y-2">
+                                            <p className="text-xs font-semibold text-gray-700">
+                                                Sample anomalous rows
                                             </p>
-                                        )}
-                                    </div>
+                                            {sampleRows.length > 0 ? (
+                                                <ul className="space-y-2">
+                                                    {sampleRows.slice(0, 5).map((row, index) => {
+                                                        const rowLabel =
+                                                            row?.rowIndex ||
+                                                            row?.row_number ||
+                                                            row?.index ||
+                                                            row?.row ||
+                                                            index + 1;
+                                                        const severity = row?.severity || row?.score;
+
+                                                        return (
+                                                            <li
+                                                                key={`${rowLabel}-${index}`}
+                                                                className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
+                                                            >
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="font-semibold text-gray-800">
+                                                                        Row {rowLabel}
+                                                                    </span>
+                                                                    {severity && (
+                                                                        <span className="text-xs rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
+                                                                            {severity}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <p className="text-xs text-gray-600 break-words">
+                                                                    {renderSampleValues(row)}
+                                                                </p>
+                                                            </li>
+                                                        );
+                                                    })}
+                                                </ul>
+                                            ) : (
+                                                <p className="text-sm text-gray-500">
+                                                    No sample anomalies returned for this run.
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>
