@@ -588,6 +588,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         "Airspeed",
         "Engine 1 N1",
     ]);
+    const [selectedAlgorithm, setSelectedAlgorithm] = useState("zscore");
     const [selectedCase, setSelectedCase] = useState(null);
     const [isRunningDetection, setIsRunningDetection] = useState(false);
     const [categorySamples, setCategorySamples] = useState(defaultCategorySamples);
@@ -909,10 +910,10 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         setAnomalyResult(null);
 
         try {
-            const result = await runFdrAnomalyDetection(
-                caseNumber,
-                detectionParameters
-            );
+            const result = await runFdrAnomalyDetection(caseNumber, {
+                parameters: detectionParameters,
+                algorithm: selectedAlgorithm,
+            });
             setAnomalyResult(result);
             setWorkflowStage((prev) =>
                 prev === "analysis" ? "detectionComplete" : prev
@@ -1615,6 +1616,22 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             Charts only render the parameters you toggle on. Detection will always use the full set of parsed
                             parameters so you don&apos;t have to choose thresholds first.
                         </p>
+                    </div>
+
+                    <div className="space-y-1">
+                        <label className="text-sm font-semibold text-gray-800" htmlFor="algorithm-select">
+                            Algorithm
+                        </label>
+                        <select
+                            id="algorithm-select"
+                            value={selectedAlgorithm}
+                            onChange={(event) => setSelectedAlgorithm(event.target.value)}
+                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                        >
+                            <option value="zscore">Z-score (default)</option>
+                            <option value="iqr">IQR</option>
+                            <option value="isolation_forest">Isolation Forest (beta)</option>
+                        </select>
                     </div>
 
                     <button
