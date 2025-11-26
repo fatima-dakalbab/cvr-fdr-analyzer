@@ -171,6 +171,18 @@ const findFdrAttachment = (caseData) => {
   return attachments.find((item) => (item?.type || '').toUpperCase() === 'FDR');
 };
 
+const normalizeAlgorithm = (algorithmName) => {
+  const normalized = typeof algorithmName === 'string' ? algorithmName.toLowerCase() : '';
+  switch (normalized) {
+    case 'iqr':
+    case 'isolation_forest':
+    case 'zscore':
+      return normalized;
+    default:
+      return 'zscore';
+  }
+};
+
 const getAlgorithmHandlers = (algorithmName) => {
   switch (algorithmName) {
     case 'iqr':
@@ -213,7 +225,7 @@ const analyzeFdrForCase = async (caseNumber, options = {}) => {
   });
 
   const { headers, rows } = parseCsv(csvText);
-  const algorithm = typeof options.algorithm === 'string' ? options.algorithm.toLowerCase() : 'zscore';
+  const algorithm = normalizeAlgorithm(options.algorithm);
   const { calculateColumnStats, detectAnomalies } = getAlgorithmHandlers(algorithm);
   const requestedParameters = Array.isArray(options.parameters)
     ? options.parameters
@@ -233,6 +245,7 @@ const analyzeFdrForCase = async (caseNumber, options = {}) => {
     anomalyCount: anomalies.length,
     perColumnStats: stats,
     examples: anomalies.slice(0, 20),
+    algorithm,
   };
 };
 
