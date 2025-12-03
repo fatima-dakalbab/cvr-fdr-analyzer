@@ -597,12 +597,26 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             return null;
         }
 
-        const normalized =
-            typeof sourceAlgorithm === "string"
-                ? sourceAlgorithm.toLowerCase()
-                : sourceAlgorithm;
+        if (typeof sourceAlgorithm === "string") {
+            const normalized = sourceAlgorithm.toLowerCase();
+            return algorithmDisplayNames[normalized] || sourceAlgorithm;
+        }
 
-        return algorithmDisplayNames[normalized] || sourceAlgorithm || null;
+        if (typeof sourceAlgorithm === "object") {
+            const name = sourceAlgorithm.name || sourceAlgorithm.type;
+            if (typeof name === "string") {
+                const normalized = name.toLowerCase();
+                return algorithmDisplayNames[normalized] || name;
+            }
+
+            try {
+                return JSON.stringify(sourceAlgorithm);
+            } catch (error) {
+                return String(sourceAlgorithm);
+            }
+        }
+
+        return String(sourceAlgorithm)
     }, [anomalyResult, selectedAlgorithm]);
     useEffect(() => {
         if (!anomalyResult) {
@@ -1041,6 +1055,38 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         return topAnomalyParameters;
     }, [anomalyResult, topAnomalyParameters]);
+
+    const renderSampleValues = (row) => {
+        if (!row || typeof row !== "object") {
+            return String(row ?? "");
+        }
+
+         const base =
+            (row?.values && typeof row.values === "object" && row.values) ||
+            (row?.metrics && typeof row.metrics === "object" && row.metrics) ||
+            (row?.parameters &&
+                typeof row.parameters === "object" &&
+                !Array.isArray(row.parameters) &&
+                row.parameters) ||
+            row;
+        const entries = Object.entries(base).filter(
+            ([key]) =>
+                !["rowIndex", "row_number", "index", "row", "severity", "score"].includes(
+                    key
+                )
+        );
+
+        if (entries.length === 0) {
+            return JSON.stringify(base);
+        }
+
+        return entries
+            .slice(0, 3)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join(" · ");
+    };
+
+
     const anomalyTableRows = useMemo(
         () =>
             sampleRows.slice(0, 10).map((row, index) => {
@@ -1079,29 +1125,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             }),
         [sampleRows]
     );
-
-    const renderSampleValues = (row) => {
-        if (!row || typeof row !== "object") {
-            return String(row ?? "");
-        }
-
-        const base = row.parameters || row.values || row.metrics || row;
-        const entries = Object.entries(base).filter(
-            ([key]) =>
-                !["rowIndex", "row_number", "index", "row", "severity", "score"].includes(
-                    key
-                )
-        );
-
-        if (entries.length === 0) {
-            return JSON.stringify(base);
-        }
-
-        return entries
-            .slice(0, 3)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join(" · ");
-    };
 
     const renderCategoryCharts = () =>
         categoryOrder.map((category) => {
@@ -1898,7 +1921,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                         <p className="text-xs text-gray-500">
                                             <span className="font-semibold text-gray-800">Algorithm:</span>
                                             <span className="ml-1">
-                                                {algorithmDisplayNames[algorithmUsed] || algorithmUsed || "Unknown"}
+                                                {algorithmUsed || "Unknown"}
                                             </span>
                                             <span className="ml-3 font-semibold text-gray-800">Total rows:</span>
                                             <span className="ml-1 text-gray-700">
