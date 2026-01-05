@@ -10,6 +10,7 @@ import {
     Tooltip,
     Line,
     Bar,
+    LineChart,
 } from "recharts";
 import { fetchCaseByNumber } from "../api/cases";
 import { runFdrAnomalyDetection } from "../api/anomaly";
@@ -17,7 +18,7 @@ import useRecentCases from "../hooks/useRecentCases";
 import { buildCasePreview } from "../utils/caseDisplay";
 import { evaluateModuleReadiness } from "../utils/analysisAvailability";
 import { fetchAttachmentFromObjectStore } from "../utils/storage";
-import fdrParameterMap from "../config/fdr-parameter-map";
+import fdrParameterConfig, { fdrParameterMap } from "../config/fdr-parameters";
 
 const defaultCaseOptions = [
     {
@@ -46,29 +47,6 @@ const defaultCaseOptions = [
     },
 ];
 
-const buildParameterGroups = (entries) => {
-    const groups = entries.reduce((acc, entry) => {
-        const groupName = entry.group || "Other";
-        if (!acc[groupName]) {
-            acc[groupName] = [];
-        }
-
-        acc[groupName].push(entry.key);
-        return acc;
-    }, {});
-
-    return Object.entries(groups)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([category, parameters]) => ({
-            category,
-            parameters: parameters.sort((a, b) => {
-                const labelA = fdrParameterMap[a]?.label || a;
-                const labelB = fdrParameterMap[b]?.label || b;
-                return labelA.localeCompare(labelB);
-            }),
-        }));
-};
-
 const colorPalette = [
     "#059669",
     "#0ea5e9",
@@ -87,29 +65,26 @@ const colorPalette = [
     "#f472b6",
 ];
 
-const parameterEntries = Object.entries(fdrParameterMap).map(
-    ([key, metadata], index) => ({
-        key,
-        ...metadata,
+const parameterMetadata = fdrParameterMap.reduce((acc, entry, index) => {
+    acc[entry.id] = {
+        ...entry,
         color: colorPalette[index % colorPalette.length],
-    })
-);
-
-const parameterMetadata = parameterEntries.reduce((acc, entry) => {
-    acc[entry.key] = entry;
+    };
     return acc;
 }, {});
 
-const parameterMatchingKeywords = {
-    ALTITUDE: ["altitude"],
-    AIRSPEED: ["airspeed", "speed"],
-    PERCENT_POWER: ["n1", "percent power"],
-};
+const parameterGroups = fdrParameterConfig.map((category) => ({
+    category: category.name,
+    key: category.key,
+    parameters: category.params.map((param) => param.id),
+}));
 
-const parameterGroups = buildParameterGroups(parameterEntries);
-const defaultSelectedParameters = ["ALTITUDE", "AIRSPEED", "ENGINE_RPM_L"].filter(
-    (key) => parameterMetadata[key]
-);
+const defaultSelectedParameters = [
+    "GPS Altitude (feet)",
+    "Indicated Airspeed (knots)",
+    "RPM L",
+].filter((key) => parameterMetadata[key]);
+
 const parameterKeys = Object.keys(parameterMetadata);
 const getParameterLabel = (key) => parameterMetadata[key]?.label || key;
 const formatParameterList = (keys = []) =>
@@ -118,118 +93,160 @@ const formatParameterList = (keys = []) =>
         .filter(Boolean)
         .join(", ");
 
+const dashboardCards = [
+    {
+        key: "engines-fuel",
+        title: "Engines & Fuel",
+        parameters: ["RPM L", "RPM R", "Fuel Flow 1 (gal/hr)"],
+    },
+    {
+        key: "flight-dynamics",
+        title: "Flight Dynamics",
+        parameters: [
+            "GPS Altitude (feet)",
+            "Pressure Altitude (ft)",
+            "Indicated Airspeed (knots)",
+            "Ground Speed (knots)",
+            "True Airspeed (knots)",
+            "Vertical Speed (ft/min)",
+            "Pitch (deg)",
+            "Roll (deg)",
+            "Magnetic Heading (deg)",
+        ],
+    },
+    {
+        key: "navigation",
+        title: "Navigation",
+        parameters: ["Latitude (deg)", "Longitude (deg)"],
+    },
+    {
+        key: "environment",
+        title: "Environment",
+        parameters: ["OAT (deg C)"],
+    },
+];
+
+const flightDynamicsParameterSet = new Set(
+    dashboardCards.find((card) => card.key === "flight-dynamics")?.parameters || []
+);
+
 const sampleNormalizedRows = [
     {
         time: "00:00",
-        ALTITUDE: 1200,
-        PRESSURE_ALTITUDE: 1185,
-        AIRSPEED: 145,
-        VERTICAL_SPEED: 450,
-        HEADING: 92,
-        PERCENT_POWER: 68,
-        ENGINE_RPM_L: 2200,
-        ENGINE_RPM_R: 2180,
-        FUEL_FLOW_1: 8.2,
-        FUEL_LEVEL_L: 46,
-        FUEL_LEVEL_R: 47,
-        OAT: 18,
-        LATITUDE: 24.45,
-        LONGITUDE: 54.38,
+        "GPS Altitude (feet)": 1200,
+        "Pressure Altitude (ft)": 1185,
+        "Indicated Airspeed (knots)": 145,
+        "Ground Speed (knots)": 140,
+        "True Airspeed (knots)": 148,
+        "Vertical Speed (ft/min)": 450,
+        "Magnetic Heading (deg)": 92,
+        "RPM L": 2200,
+        "RPM R": 2180,
+        "Fuel Flow 1 (gal/hr)": 8.2,
+        "OAT (deg C)": 18,
+        "Latitude (deg)": 24.45,
+        "Longitude (deg)": 54.38,
+        "Pitch (deg)": 3,
+        "Roll (deg)": 0.2,
     },
     {
         time: "00:10",
-        ALTITUDE: 1800,
-        PRESSURE_ALTITUDE: 1782,
-        AIRSPEED: 152,
-        VERTICAL_SPEED: 520,
-        HEADING: 94,
-        PERCENT_POWER: 70,
-        ENGINE_RPM_L: 2250,
-        ENGINE_RPM_R: 2230,
-        FUEL_FLOW_1: 8.6,
-        FUEL_LEVEL_L: 45.6,
-        FUEL_LEVEL_R: 46.8,
-        OAT: 17.5,
-        LATITUDE: 24.46,
-        LONGITUDE: 54.39,
+"GPS Altitude (feet)": 1800,
+        "Pressure Altitude (ft)": 1782,
+        "Indicated Airspeed (knots)": 152,
+        "Ground Speed (knots)": 149,
+        "True Airspeed (knots)": 156,
+        "Vertical Speed (ft/min)": 520,
+        "Magnetic Heading (deg)": 94,
+        "RPM L": 2250,
+        "RPM R": 2230,
+        "Fuel Flow 1 (gal/hr)": 8.6,
+        "OAT (deg C)": 17.5,
+        "Latitude (deg)": 24.46,
+        "Longitude (deg)": 54.39,
+        "Pitch (deg)": 3.4,
+        "Roll (deg)": 0.1,
     },
     {
         time: "00:20",
-        ALTITUDE: 2400,
-        PRESSURE_ALTITUDE: 2388,
-        AIRSPEED: 160,
-        VERTICAL_SPEED: 580,
-        HEADING: 96,
-        PERCENT_POWER: 73,
-        ENGINE_RPM_L: 2310,
-        ENGINE_RPM_R: 2290,
-        FUEL_FLOW_1: 9.1,
-        FUEL_LEVEL_L: 45.1,
-        FUEL_LEVEL_R: 46.2,
-        OAT: 17,
-        LATITUDE: 24.47,
-        LONGITUDE: 54.41,
+        "GPS Altitude (feet)": 2400,
+        "Pressure Altitude (ft)": 2388,
+        "Indicated Airspeed (knots)": 160,
+        "Ground Speed (knots)": 157,
+        "True Airspeed (knots)": 164,
+        "Vertical Speed (ft/min)": 580,
+        "Magnetic Heading (deg)": 96,
+        "RPM L": 2310,
+        "RPM R": 2290,
+        "Fuel Flow 1 (gal/hr)": 9.1,
+        "OAT (deg C)": 17,
+        "Latitude (deg)": 24.47,
+        "Longitude (deg)": 54.41,
+        "Pitch (deg)": 3.9,
+        "Roll (deg)": -0.1,
     },
     {
         time: "00:30",
-        ALTITUDE: 2900,
-        PRESSURE_ALTITUDE: 2885,
-        AIRSPEED: 166,
-        VERTICAL_SPEED: 540,
-        HEADING: 99,
-        PERCENT_POWER: 75,
-        ENGINE_RPM_L: 2360,
-        ENGINE_RPM_R: 2340,
-        FUEL_FLOW_1: 9.4,
-        FUEL_LEVEL_L: 44.7,
-        FUEL_LEVEL_R: 45.9,
-        OAT: 16.4,
-        LATITUDE: 24.48,
-        LONGITUDE: 54.42,
+        "GPS Altitude (feet)": 2900,
+        "Pressure Altitude (ft)": 2885,
+        "Indicated Airspeed (knots)": 166,
+        "Ground Speed (knots)": 164,
+        "True Airspeed (knots)": 171,
+        "Vertical Speed (ft/min)": 540,
+        "Magnetic Heading (deg)": 99,
+        "RPM L": 2360,
+        "RPM R": 2340,
+        "Fuel Flow 1 (gal/hr)": 9.4,
+        "OAT (deg C)": 16.4,
+        "Latitude (deg)": 24.48,
+        "Longitude (deg)": 54.42,
+        "Pitch (deg)": 4.1,
+        "Roll (deg)": -0.3,
     },
     {
         time: "00:40",
-        ALTITUDE: 3200,
-        PRESSURE_ALTITUDE: 3190,
-        AIRSPEED: 170,
-        VERTICAL_SPEED: 510,
-        HEADING: 101,
-        PERCENT_POWER: 76,
-        ENGINE_RPM_L: 2385,
-        ENGINE_RPM_R: 2365,
-        FUEL_FLOW_1: 9.6,
-        FUEL_LEVEL_L: 44.2,
-        FUEL_LEVEL_R: 45.5,
-        OAT: 16,
-        LATITUDE: 24.49,
-        LONGITUDE: 54.43,
+        "GPS Altitude (feet)": 3200,
+        "Pressure Altitude (ft)": 3190,
+        "Indicated Airspeed (knots)": 170,
+        "Ground Speed (knots)": 168,
+        "True Airspeed (knots)": 176,
+        "Vertical Speed (ft/min)": 510,
+        "Magnetic Heading (deg)": 101,
+        "RPM L": 2385,
+        "RPM R": 2365,
+        "Fuel Flow 1 (gal/hr)": 9.6,
+        "OAT (deg C)": 16,
+        "Latitude (deg)": 24.49,
+        "Longitude (deg)": 54.43,
+        "Pitch (deg)": 4.2,
+        "Roll (deg)": -0.6,
     },
     {
         time: "00:50",
-        ALTITUDE: 3600,
-        PRESSURE_ALTITUDE: 3592,
-        AIRSPEED: 176,
-        VERTICAL_SPEED: 470,
-        HEADING: 102,
-        PERCENT_POWER: 78,
-        ENGINE_RPM_L: 2410,
-        ENGINE_RPM_R: 2388,
-        FUEL_FLOW_1: 9.8,
-        FUEL_LEVEL_L: 43.8,
-        FUEL_LEVEL_R: 45.1,
-        OAT: 15.6,
-        LATITUDE: 24.5,
-        LONGITUDE: 54.44,
+        "GPS Altitude (feet)": 3600,
+        "Pressure Altitude (ft)": 3592,
+        "Indicated Airspeed (knots)": 176,
+        "Ground Speed (knots)": 174,
+        "True Airspeed (knots)": 181,
+        "Vertical Speed (ft/min)": 470,
+        "Magnetic Heading (deg)": 102,
+        "RPM L": 2410,
+        "RPM R": 2388,
+        "Fuel Flow 1 (gal/hr)": 9.8,
+        "OAT (deg C)": 15.6,
+        "Latitude (deg)": 24.5,
+        "Longitude (deg)": 54.44,
+        "Pitch (deg)": 4.3,
+        "Roll (deg)": -0.4,
     },
 ];
 
 const detectionTrendKeys = [
-    "ALTITUDE",
-    "AIRSPEED",
-    "PERCENT_POWER",
-    "ENGINE_RPM_L",
-    "ENGINE_RPM_R",
-    "VERTICAL_SPEED",
+    "GPS Altitude (feet)",
+    "Indicated Airspeed (knots)",
+    "RPM L",
+    "RPM R",
+    "Vertical Speed (ft/min)",
 ];
 
 const algorithmDisplayNames = {
@@ -238,13 +255,21 @@ const algorithmDisplayNames = {
     isolation_forest: "Isolation Forest",
 };
 
+const normalizeHeader = (value = "") => String(value || "").trim().toLowerCase();
+
+
 const toNumber = (value) => {
     if (value === undefined || value === null) {
         return null;
     }
 
-    const numeric = Number.parseFloat(String(value).replace(/[^0-9.-]+/g, ""));
-    return Number.isNaN(numeric) ? null : numeric;
+ const trimmedValue = typeof value === "string" ? value.trim() : value;
+    if (trimmedValue === "") {
+        return null;
+    }
+
+    const numeric = Number(trimmedValue);
+    return Number.isFinite(numeric) ? numeric : null;
 };
 
 const pickNumeric = (row, columnNames = []) => {
@@ -258,49 +283,29 @@ const pickNumeric = (row, columnNames = []) => {
     return null;
 };
 
-const findMatchingHeader = (headers = [], csvKey = "", keywords = []) => {
+const buildParameterColumnMap = (headers = []) => {
     const normalizedHeaders = headers.map((header) => ({
         raw: header,
-        value: String(header || "").toLowerCase(),
+        normalized: normalizeHeader(header),
     }));
-    const normalizedKeywords = [csvKey, ...keywords]
-        .map((keyword) => String(keyword || "").toLowerCase())
-        .filter(Boolean);
-
-    for (const keyword of normalizedKeywords) {
-        const exact = normalizedHeaders.find((header) => header.value === keyword);
-        if (exact) {
-            return exact.raw;
-        }
-    }
-
-    for (const keyword of normalizedKeywords) {
-        const partial = normalizedHeaders.find((header) =>
-            header.value.includes(keyword)
-        );
-
-        if (partial) {
-            return partial.raw;
-        }
-    }
-
-    return null;
-};
-
-const buildParameterColumnMap = (headers = []) => {
+    
     const matches = {};
 
-    parameterEntries.forEach(({ key, csvKey }) => {
-        const keywordHints = parameterMatchingKeywords[key] || [];
-        const match = findMatchingHeader(headers, csvKey, keywordHints);
+    fdrParameterMap.forEach(({ id, label }) => {
+        const normalizedId = normalizeHeader(id);
+        const normalizedLabel = normalizeHeader(label);
+        const exactMatch = normalizedHeaders.find(
+            (header) => header.normalized === normalizedId
+        );
+        const labelMatch = normalizedHeaders.find(
+            (header) => header.normalized === normalizedLabel
+        );
+        const partialMatch = normalizedHeaders.find((header) =>
+            header.normalized.includes(normalizedId)
+        );
 
-        if (match) {
-            matches[key] = [match];
-        } else if (csvKey) {
-            matches[key] = [csvKey];
-        } else {
-            matches[key] = [];
-        }
+        const match = exactMatch || labelMatch || partialMatch;
+        matches[id] = match ? [match.raw] : [id];
     });
 
     console.debug("[FDR] Parameter column matches", {
@@ -399,13 +404,11 @@ const normalizeFdrRows = (csvText) => {
     return rawRows.map((row, index) => {
         const normalized = { time: resolveTimeLabel(row, index) };
 
-        parameterEntries.forEach(({ key, csvKey }) => {
-            const columnsToTry = columnMap[key]?.length
-                ? columnMap[key]
-                : [csvKey].filter(Boolean);
+        fdrParameterMap.forEach(({ id }) => {
+            const columnsToTry = columnMap[id]?.length ? columnMap[id] : [id];
             const value = pickNumeric(row, columnsToTry);
             if (value !== null) {
-                normalized[key] = value;
+                normalized[id] = value;
             }
         });
 
@@ -419,10 +422,10 @@ const hasNumericValue = (row, keys) =>
 const truncateSeries = (series, maxPoints = 500) =>
     series.length > maxPoints ? series.slice(0, maxPoints) : series;
 
-const buildCategorySamplesFromRows = (rows) => {
+const buildCardSamplesFromRows = (rows) => {
     const groupedSamples = {};
 
-    parameterGroups.forEach(({ category, parameters }) => {
+    dashboardCards.forEach(({ key, parameters }) => {
         const samples = truncateSeries(
             rows
                 .map((row) => {
@@ -438,7 +441,7 @@ const buildCategorySamplesFromRows = (rows) => {
             400
         );
 
-        groupedSamples[category] = samples;
+        groupedSamples[key] = samples;
     });
 
     return groupedSamples;
@@ -457,10 +460,10 @@ const deriveAvailableParameters = (rows) => {
 };
 
 const buildParameterTable = (rows) =>
-    parameterEntries
+    fdrParameterMap
         .map((definition) => {
             const values = rows
-                .map((row) => row[definition.key])
+                .map((row) => row[definition.id])
                 .filter((value) => typeof value === "number" && !Number.isNaN(value));
 
             if (values.length === 0) {
@@ -532,7 +535,7 @@ const getSeriesRenderConfig = (data = [], key) => {
     return { variant: "line", lineType: "monotone" };
 };
 
-const defaultCategorySamples = buildCategorySamplesFromRows(sampleNormalizedRows);
+const defaultCardSamples = buildCardSamplesFromRows(sampleNormalizedRows);
 const defaultAvailableParameters = Array.from(
     deriveAvailableParameters(sampleNormalizedRows)
 );
@@ -548,7 +551,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [selectedAlgorithm, setSelectedAlgorithm] = useState("zscore");
     const [selectedCase, setSelectedCase] = useState(null);
     const [isRunningDetection, setIsRunningDetection] = useState(false);
-    const [categorySamples, setCategorySamples] = useState(defaultCategorySamples);
+    const [cardSamples, setCardSamples] = useState(defaultCardSamples);
     const [detectionTrendData, setDetectionTrendData] = useState(
         defaultDetectionTrendSamples
     );
@@ -559,6 +562,9 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         defaultAvailableParameters
     );
     const [normalizedRows, setNormalizedRows] = useState(sampleNormalizedRows);
+    const [visibleFlightDynamics, setVisibleFlightDynamics] = useState(
+        () => new Set(flightDynamicsParameterSet)
+    );
     const [anomalyResult, setAnomalyResult] = useState(null);
     const [anomalyError, setAnomalyError] = useState("");
     const [isLoadingFdrData, setIsLoadingFdrData] = useState(false);
@@ -727,7 +733,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         const caseData = selectedCase?.source;
 
         if (!caseData) {
-            setCategorySamples(defaultCategorySamples);
+            setCardSamples(defaultCardSamples);
             setDetectionTrendData(defaultDetectionTrendSamples);
             setParameterTableRows(defaultParameterTableRows);
             setAvailableParameters(defaultAvailableParameters);
@@ -755,7 +761,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         });
 
         if (!fdrAttachment) {
-            setCategorySamples(defaultCategorySamples);
+            setCardSamples(defaultCardSamples);
             setDetectionTrendData(defaultDetectionTrendSamples);
             setParameterTableRows(defaultParameterTableRows);
             setAvailableParameters([]);
@@ -788,26 +794,21 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     );
                 }
 
-                const derivedCategories = buildCategorySamplesFromRows(rows);
+                const derivedSamples = buildCardSamplesFromRows(rows);
                 const availability = deriveAvailableParameters(rows);
                 const parameterTable = buildParameterTable(rows);
                 const trends = buildDetectionTrendSeries(rows);
                 setNormalizedRows(rows);
 
-                setCategorySamples({
-                    "Flight Dynamics":
-                        derivedCategories["Flight Dynamics"]?.length > 0
-                            ? derivedCategories["Flight Dynamics"]
-                            : defaultCategorySamples["Flight Dynamics"],
-                    Engines:
-                        derivedCategories.Engines?.length > 0
-                            ? derivedCategories.Engines
-                            : defaultCategorySamples.Engines,
-                    "Flight Controls":
-                        derivedCategories["Flight Controls"]?.length > 0
-                            ? derivedCategories["Flight Controls"]
-                            : defaultCategorySamples["Flight Controls"],
-                });
+                const blendedSamples = dashboardCards.reduce((acc, card) => {
+                    const derived = derivedSamples[card.key] || [];
+                    acc[card.key] = derived.length
+                        ? derived
+                        : defaultCardSamples[card.key] || [];
+                    return acc;
+                }, {});
+
+                setCardSamples(blendedSamples);
 
                 setDetectionTrendData(
                     trends.length > 0 ? trends : defaultDetectionTrendSamples
@@ -831,14 +832,14 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     return;
                 }
 
-                setCategorySamples(defaultCategorySamples);
-            setDetectionTrendData(defaultDetectionTrendSamples);
-            setParameterTableRows(defaultParameterTableRows);
-            setAvailableParameters([]);
-            setNormalizedRows(sampleNormalizedRows);
-            const status = error?.status ? ` (status ${error.status})` : "";
-            setFdrDataError(
-                error?.message
+            setCardSamples(defaultCardSamples);
+                setDetectionTrendData(defaultDetectionTrendSamples);
+                setParameterTableRows(defaultParameterTableRows);
+                setAvailableParameters([]);
+                setNormalizedRows(sampleNormalizedRows);
+                const status = error?.status ? ` (status ${error.status})` : "";
+                setFdrDataError(
+                    error?.message
                         ? `${error.message}${status}`
                         : "Unable to load the FDR attachment."
                 );
@@ -909,6 +910,22 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         setMissingDataTypes([]);
     };
 
+    const handleToggleFlightDynamics = (parameter) => {
+        if (!flightDynamicsParameterSet.has(parameter)) {
+            return;
+        }
+
+        setVisibleFlightDynamics((prev) => {
+            const next = new Set(prev);
+            if (next.has(parameter)) {
+                next.delete(parameter);
+            } else {
+                next.add(parameter);
+            }
+            return next;
+        });
+    };
+
     const toggleParameter = (parameter) => {
         if (!availableParameters.includes(parameter)) {
             return;
@@ -956,7 +973,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         }
     };
 
-    const categoryOrder = parameterGroups.map((group) => group.category);
     const totalRows =
         anomalyResult?.totalRows ??
         anomalyResult?.evaluatedRows ??
@@ -1126,38 +1142,173 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         [sampleRows]
     );
 
-    const renderCategoryCharts = () =>
-        categoryOrder.map((category) => {
-            const categoryParameters = (
-                parameterGroups.find((group) => group.category === category)?.parameters || []
-            ).filter((parameter) => availableParameterSet.has(parameter));
-            const activeParameters = categoryParameters.filter((parameter) =>
-                selectedParameters.includes(parameter)
+        const renderDashboardCards = () =>
+        dashboardCards.map((card) => {
+            const selectedForCard = selectedParameters.filter((parameter) =>
+                card.parameters.includes(parameter)
             );
-            const chartData = categorySamples[category] || [];
-            const hasData = chartData.length > 0 && activeParameters.length > 0;
-            const noMatches =
-                categoryParameters.length > 0 && chartData.length === 0;
-            const hasMultiScaleData = activeParameters.some((parameter) =>
+            const visibleParameters = (
+                card.key === "flight-dynamics"
+                    ? selectedForCard.filter((parameter) =>
+                          visibleFlightDynamics.has(parameter)
+                      )
+                    : selectedForCard
+            ).filter((parameter) => availableParameterSet.has(parameter));
+            const chartData = (cardSamples[card.key] || [])
+                .map((row) => {
+                    const entry = { time: row.time };
+                    visibleParameters.forEach((parameter) => {
+                        if (typeof row[parameter] === "number" && !Number.isNaN(row[parameter])) {
+                            entry[parameter] = row[parameter];
+                        }
+                    });
+                    return entry;
+                })
+                .filter((row) => row.time && hasNumericValue(row, visibleParameters));
+            const hasData = chartData.length > 0 && visibleParameters.length > 0;
+            const showNoMatch =
+                selectedForCard.length > 0 &&
+                (visibleParameters.length === 0 || chartData.length === 0);
+            const hasMultiScaleData = visibleParameters.some((parameter) =>
                 summarizeSeriesProfile(chartData, parameter).isMultiScale
             );
+             const badgeParameters = visibleParameters;
+
+            const scatterData =
+                card.key === "navigation"
+                    ? (cardSamples[card.key] || [])
+                          .map((row) => ({
+                              latitude: Number(row["Latitude (deg)"]),
+                              longitude: Number(row["Longitude (deg)"]),
+                          }))
+                          .filter(
+                              (point) =>
+                                  Number.isFinite(point.latitude) &&
+                                  Number.isFinite(point.longitude)
+                          )
+                    : [];
+            const canShowScatter =
+                card.key === "navigation" &&
+                scatterData.length > 0 &&
+                ["Latitude (deg)", "Longitude (deg)"].every((parameter) =>
+                    visibleParameters.includes(parameter)
+                );
+
+            const renderTimeSeries = () => (
+                <div className="min-h-[260px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart
+                            data={chartData}
+                            margin={{ top: 12, right: 24, left: 0, bottom: 0 }}
+                        >
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                            <XAxis dataKey="time" stroke="#94a3b8" minTickGap={20} />
+                            <YAxis
+                                stroke="#94a3b8"
+                                allowDataOverflow={hasMultiScaleData}
+                                domain={["auto", "auto"]}
+                                padding={hasMultiScaleData ? { top: 12, bottom: 12 } : { top: 8, bottom: 8 }}
+                            />
+                            <Tooltip cursor={{ stroke: "#cbd5e1" }} />
+                            {visibleParameters.map((parameter) => {
+                                const config = parameterMetadata[parameter];
+                                const stroke = config?.color ?? "#0f172a";
+                                const label = config?.label || parameter;
+                                const renderConfig = getSeriesRenderConfig(
+                                    chartData,
+                                    parameter
+                                );
+
+                                if (renderConfig.variant === "bar") {
+                                    return (
+                                        <Bar
+                                            key={parameter}
+                                            dataKey={parameter}
+                                            name={label}
+                                            fill={stroke}
+                                            barSize={18}
+                                            isAnimationActive={false}
+                                        />
+                                    );
+                                }
+
+                                return (
+                                    <Line
+                                        key={parameter}
+                                        type={renderConfig.lineType || "monotone"}
+                                        dataKey={parameter}
+                                        name={label}
+                                        stroke={stroke}
+                                        strokeWidth={2}
+                                        dot={false}
+                                        connectNulls
+                                        isAnimationActive={false}
+                                    />
+                                );
+                            })}
+                        </ComposedChart>
+                    </ResponsiveContainer>
+                </div>
+            );
+
+            const emptyMessage = showNoMatch
+                ? "No matching numeric column found for this selection."
+                : "Select parameters from the left to visualize this card.";
 
             return (
                 <div
-                    key={category}
+                    key={card.key}
                     className="flex w-full flex-col gap-3 rounded-2xl border border-gray-200 bg-white/70 p-4 shadow-sm"
                 >
                     <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-semibold text-gray-800">{category}</h3>
+                        <div>
+                            <h3 className="text-sm font-semibold text-gray-800">{card.title}</h3>
+                            <p className="text-xs text-gray-500">
+                                {card.key === "flight-dynamics"
+                                    ? "Energy, kinematics, and attitude traces."
+                                    : card.key === "navigation"
+                                      ? "Track geospatial progress alongside a longitude/latitude trace."
+                                      : card.key === "engines-fuel"
+                                        ? "Engine RPM with fuel flow rate overlays."
+                                        : "Environmental readings captured by the recorder."}
+                            </p>
+                        </div>
                         <span className="text-xs font-medium text-gray-400">
-                            {activeParameters.length}/{categoryParameters.length} selected
+                            {visibleParameters.length}/{card.parameters.length} displayed
                         </span>
                     </div>
+                 {card.key === "flight-dynamics" && selectedForCard.length > 0 && (
+                        <div className="flex flex-wrap gap-2 rounded-lg bg-gray-50 p-2">
+                            {card.parameters
+                                .filter((parameter) => selectedForCard.includes(parameter))
+                                .map((parameter) => {
+                                    const isVisible = visibleFlightDynamics.has(parameter);
+                                    const label = getParameterLabel(parameter);
+                                    const disabled = !availableParameterSet.has(parameter);
+                                    return (
+                                        <label
+                                            key={parameter}
+                                            className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                                checked={isVisible}
+                                                disabled={disabled}
+                                                onChange={() => handleToggleFlightDynamics(parameter)}
+                                            />
+                                            <span className={disabled ? "text-gray-400" : ""}>{label}</span>
+                                        </label>
+                                    );
+                                })}
+                        </div>
+                    )}
+
 
                     {hasData ? (
                         <>
                             <div className="flex flex-wrap gap-2">
-                                {activeParameters.map((parameter) => {
+                                {badgeParameters.map((parameter) => {
                                     const config = parameterMetadata[parameter];
                                     const badgeColor = config?.color ?? "#0f172a";
                                     const badgeBackground = config?.color
@@ -1180,68 +1331,43 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 })}
                             </div>
 
-                            <div className="min-h-[260px]">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart
-                                        data={chartData}
-                                        margin={{ top: 12, right: 24, left: 0, bottom: 0 }}
-                                    >
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                        <XAxis dataKey="time" stroke="#94a3b8" minTickGap={20} />
-                                        <YAxis
-                                            stroke="#94a3b8"
-                                            allowDataOverflow={hasMultiScaleData}
-                                            domain={["auto", "auto"]}
-                                            padding={hasMultiScaleData ? { top: 12, bottom: 12 } : { top: 8, bottom: 8 }}
-                                        />
-                                        <Tooltip cursor={{ stroke: "#cbd5e1" }} />
-                                        {activeParameters.map((parameter) => {
-                                            const config = parameterMetadata[parameter];
-                                            const stroke = config?.color ?? "#0f172a";
-                                            const label = config?.label || parameter;
-                                            const renderConfig = getSeriesRenderConfig(
-                                                chartData,
-                                                parameter
-                                            );
+ {renderTimeSeries()}
 
-                                            if (renderConfig.variant === "bar") {
-                                                return (
-                                                    <Bar
-                                                        key={parameter}
-                                                        dataKey={parameter}
-                                                        name={label}
-                                                        fill={stroke}
-                                                        barSize={18}
-                                                        isAnimationActive={false}
-                                                    />
-                                                );
-                                            }
-
-                                            return (
-                                                <Line
-                                                    key={parameter}
-                                                    type={renderConfig.lineType || "monotone"}
-                                                    dataKey={parameter}
-                                                    name={label}
-                                                    stroke={stroke}
-                                                    strokeWidth={2}
-                                                    dot={false}
-                                                    connectNulls
-                                                    isAnimationActive={false}
-                                                />
-                                            );
-                                        })}
-                                    </ComposedChart>
-                                </ResponsiveContainer>
-                            </div>
+                            {canShowScatter && (
+                                <div className="min-h-[220px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={scatterData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                            <XAxis
+                                                dataKey="longitude"
+                                                type="number"
+                                                stroke="#94a3b8"
+                                                label={{ value: "Longitude", position: "insideBottom", offset: -4, fill: "#64748b" }}
+                                            />
+                                            <YAxis
+                                                dataKey="latitude"
+                                                type="number"
+                                                stroke="#94a3b8"
+                                                label={{ value: "Latitude", angle: -90, position: "insideLeft", fill: "#64748b" }}
+                                            />
+                                            <Tooltip cursor={{ stroke: "#cbd5e1" }} />
+                                            <Line
+                                                type="monotone"
+                                                dataKey="latitude"
+                                                stroke={parameterMetadata["Latitude (deg)"]?.color || "#0f172a"}
+                                                strokeWidth={2}
+                                                dot={{ r: 2 }}
+                                                isAnimationActive={false}
+                                                name="Position"
+                                            />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-center text-sm text-gray-500">
-                            {noMatches
-                                ? "No matching numeric column found for this selection."
-                                : categoryParameters.length === 0
-                                  ? "No recorded parameters for this category in the uploaded file."
-                                  : `Select ${category.toLowerCase()} parameters to visualize trends.`}
+                           {emptyMessage}
                         </div>
                     )}
                 </div>
@@ -1847,7 +1973,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         </div>
 
                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                            {renderCategoryCharts()}
+                            {renderDashboardCards()}
                         </div>
                     </section>
 

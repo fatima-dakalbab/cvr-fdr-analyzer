@@ -2,6 +2,33 @@ const { findCaseByNumber } = require('./cases');
 const { downloadObjectAsString } = require('./storage');
 const fdrParameterMap = require('../config/fdr-parameter-map');
 
+const MODEL_FEATURES = [
+  'GPS Altitude',
+  'Pressure Altitude',
+  'Indicated Airspeed',
+  'Ground Speed',
+  'True Airspeed',
+  'Vertical Speed',
+  'Pitch',
+  'Roll',
+  'Magnetic Heading',
+  'RPM Left',
+  'RPM Right',
+  'Fuel Flow 1',
+  'Outside Air Temperature',
+  'Latitude',
+  'Longitude',
+];
+
+const FEATURE_TO_CSV_HEADER = MODEL_FEATURES.reduce((acc, feature) => {
+  const metadata = Object.values(fdrParameterMap).find((entry) => entry.label === feature);
+  acc[feature] = metadata?.csvKey || feature;
+  return acc;
+}, {});
+
+const TIMESTAMP_FIELDS = ['GPS Date & Time', 'Session Time', 'System Time'];
+const PYTHON_MODEL_URL = process.env.PYTHON_MODEL_URL || 'http://localhost:8000';
+
 const parseCsv = (text) => {
   const lines = (text || '')
     .split(/\r?\n/)
