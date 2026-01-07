@@ -970,12 +970,18 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         anomalyResult?.count ??
         segments.length ??
         null;
-    const anomalyPercentage =
-        anomalyResult?.anomalyPercentage ??
-        anomalyResult?.anomaly_percentage ??
-        (totalRows && typeof anomalyCount === "number" && totalRows > 0
-            ? (anomalyCount / totalRows) * 100
-            : null);
+    const flaggedRowCount =
+        anomalyResult?.summary?.flaggedRowCount ??
+        anomalyResult?.summary?.flagged_row_count ??
+        anomalyResult?.flaggedRowCount ??
+        anomalyResult?.flagged_row_count ??
+        null;
+    const flaggedPercent =
+        anomalyResult?.summary?.flaggedPercent ??
+        anomalyResult?.summary?.flagged_percent ??
+        anomalyResult?.flaggedPercent ??
+        anomalyResult?.flagged_percent ??
+        null;
     const noAnomaliesDetected = Boolean(anomalyResult) && anomalyCount === 0;
     const topAnomalyParameters = useMemo(() => {
         if (!anomalyResult) {
@@ -1378,7 +1384,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         onClick={() => setWorkflowStage("analysis")}
                         className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm"
                     >
-                        Return to configuration
+                        Back to data overview
                     </button>
                 </div>
             );
@@ -1410,7 +1416,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             onClick={() => setWorkflowStage("analysis")}
                             className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:border-emerald-200 hover:text-emerald-600"
                         >
-                            Back to configuration
+                            Back to data overview
                         </button>
                         <button
                             type="button"
@@ -1421,111 +1427,100 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     </div>
                 </header>
 
-                <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6">
-                    <section className="space-y-6">
-                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h2 className="text-lg font-semibold text-gray-900">
-                                        Anomaly Score Timeline
-                                    </h2>
-                                    <p className="text-sm text-gray-500">
-                                        Window-based reconstruction error across the flight.
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="mt-6 h-72">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={scoreTimelineData.length ? scoreTimelineData : detectionTrendData}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                        <XAxis dataKey="time" stroke="#94a3b8" />
-                                        <YAxis stroke="#94a3b8" />
-                                        <Tooltip />
-                                        <Line
-                                            type="monotone"
-                                            dataKey={scoreTimelineData.length ? "score" : "AIRSPEED"}
-                                            stroke="#38bdf8"
-                                            strokeWidth={3}
-                                            dot={false}
-                                            name={scoreTimelineData.length ? "Anomaly Score" : "Flight Baseline"}
-                                        />
-                                    </ComposedChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
-
-                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
-                            <div className="flex items-center justify-between mb-4">
-                                <div>
-                                    <h2 className="text-lg font-semibold text-gray-900">
-                                        Anomaly Summary
-                                    </h2>
-                                    <p className="text-sm text-gray-500">
-                                        Events flagged by the detection model for deeper review.
-                                    </p>
-                                </div>
-                                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                                    {anomalyCount ?? 0} segments flagged
-                                    {typeof anomalyPercentage === "number"
-                                        ? ` (${anomalyPercentage.toFixed(1)}%)`
-                                        : ""}
-                                </span>
-                            </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead className="text-xs uppercase tracking-wide text-gray-500">
-                                        <tr className="border-b border-gray-100">
-                                            <th className="px-4 py-3 text-left">Parameter</th>
-                                            <th className="px-4 py-3 text-left">Timestamp</th>
-                                            <th className="px-4 py-3 text-right">Severity</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {anomalyTableRows.length > 0 ? (
-                                            anomalyTableRows.map((row) => (
-                                                <tr key={row.id} className="hover:bg-gray-50">
-                                                    <td className="px-4 py-3 font-medium text-gray-800">
-                                                        <div>{row.parameter}</div>
-                                                        {row.summary && (
-                                                            <p className="text-xs text-gray-500 mt-1 break-words">
-                                                                {row.summary}
-                                                            </p>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-gray-500">{row.time}</td>
-                                                    <td className="px-4 py-3 text-right">
-                                                        <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50">
-                                                            {row.severity}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        ) : (
-                                            <tr>
-                                                <td
-                                                    className="px-4 py-4 text-center text-sm text-gray-500"
-                                                    colSpan={3}
-                                                >
-                                                    No segments returned for this run.
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </section>
-
-                    <aside className="space-y-6">
-                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
+                <section className="rounded-3xl bg-white p-6 border border-gray-200">
+                    <div className="flex items-center justify-between">
+                        <div>
                             <h2 className="text-lg font-semibold text-gray-900">
-                                Top contributing parameters
+                                Anomaly Score Timeline
                             </h2>
+                            <p className="text-sm text-gray-500">
+                                Window-based reconstruction error across the flight.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="mt-6 h-72">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <ComposedChart data={scoreTimelineData.length ? scoreTimelineData : detectionTrendData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                <XAxis dataKey="time" stroke="#94a3b8" />
+                                <YAxis stroke="#94a3b8" />
+                                <Tooltip />
+                                <Line
+                                    type="monotone"
+                                    dataKey={scoreTimelineData.length ? "score" : "AIRSPEED"}
+                                    stroke="#38bdf8"
+                                    strokeWidth={3}
+                                    dot={false}
+                                    name={scoreTimelineData.length ? "Anomaly Score" : "Flight Baseline"}
+                                />
+                            </ComposedChart>
+                        </ResponsiveContainer>
+                    </div>
+                </section>
+
+                <section className="space-y-4">
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-900">Key Summary Cards</h2>
+                        <p className="text-sm text-gray-500">
+                            Unified highlights for the latest Behavioral Anomaly Detection run.
+                        </p>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-3">
+                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
+                            <p className="text-xs uppercase tracking-wide text-gray-500">
+                                Segments flagged
+                            </p>
+                            <p className="mt-3 text-3xl font-bold text-gray-900">
+                                {typeof anomalyCount === "number" ? anomalyCount.toLocaleString() : "—"}
+                            </p>
+                            <p className="mt-2 text-sm text-gray-500">
+                                {typeof totalRows === "number"
+                                    ? `${totalRows.toLocaleString()} total rows reviewed`
+                                    : "Total rows unavailable"}
+                            </p>
+                        </div>
+
+                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
+                            <p className="text-xs uppercase tracking-wide text-gray-500">
+                                Flagged flight timeline
+                            </p>
+                            <div className="mt-4 flex items-center gap-4">
+                                <div className="relative">
+                                    <div className="h-24 w-24 rounded-full border-[10px] border-emerald-100" />
+                                    <div className="absolute inset-2 flex flex-col items-center justify-center rounded-full bg-white">
+                                        <span className="text-xl font-bold text-emerald-600">
+                                            {typeof flaggedPercent === "number"
+                                                ? flaggedPercent.toFixed(1)
+                                                : "—"}
+                                        </span>
+                                        <span className="text-[10px] uppercase tracking-wide text-gray-500">
+                                            %
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="space-y-1 text-sm text-gray-600">
+                                    <p>
+                                        {typeof flaggedRowCount === "number"
+                                            ? `${flaggedRowCount.toLocaleString()} rows flagged`
+                                            : "Rows flagged unavailable"}
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                        {typeof totalRows === "number"
+                                            ? `Out of ${totalRows.toLocaleString()} total rows`
+                                            : "Total rows unavailable"}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
+                            <h3 className="text-sm font-semibold text-gray-900">
+                                Top contributing parameters
+                            </h3>
                             <p className="mt-1 text-sm text-gray-500">
                                 Parameters most frequently contributing to flagged segments.
                             </p>
-
-                            <div className="mt-6 space-y-4">
+                            <div className="mt-4 space-y-3">
                                 {displayedTopParameters.length > 0 ? (
                                     displayedTopParameters.map((item) => (
                                         <div key={item.name} className="flex items-center justify-between">
@@ -1547,44 +1542,81 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 )}
                             </div>
                         </div>
+                    </div>
+                </section>
 
-                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
+                <section className="rounded-3xl bg-white p-6 border border-gray-200">
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
                             <h2 className="text-lg font-semibold text-gray-900">
-                                Anomalies Detected
+                                Flagged Events (Evidence View)
                             </h2>
                             <p className="text-sm text-gray-500">
-                                Share of detected segments across the flight timeline.
+                                Evidence-ready review of flagged intervals and contributing parameters.
                             </p>
-                            <div className="mt-6 flex h-48 items-center justify-center">
-                                <div className="relative">
-                                    <div className="h-40 w-40 rounded-full border-[14px] border-emerald-100" />
-                                    <div className="absolute inset-2 flex flex-col items-center justify-center rounded-full bg-white">
-                                        <span className="text-3xl font-bold text-emerald-600">
-                                            {typeof anomalyPercentage === "number"
-                                                ? anomalyPercentage.toFixed(1)
-                                                : "—"}
-                                        </span>
-                                        <span className="text-xs uppercase tracking-wide text-gray-500">
-                                            % of rows
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
+                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            {anomalyCount ?? 0} segments flagged
+                            {typeof flaggedPercent === "number"
+                                ? ` (${flaggedPercent.toFixed(1)}% of flight)`
+                                : ""}
+                        </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead className="text-xs uppercase tracking-wide text-gray-500">
+                                <tr className="border-b border-gray-100">
+                                    <th className="px-4 py-3 text-left">Parameter</th>
+                                    <th className="px-4 py-3 text-left">Timestamp</th>
+                                    <th className="px-4 py-3 text-right">Severity</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {anomalyTableRows.length > 0 ? (
+                                    anomalyTableRows.map((row) => (
+                                        <tr key={row.id} className="hover:bg-gray-50">
+                                            <td className="px-4 py-3 font-medium text-gray-800">
+                                                <div>{row.parameter}</div>
+                                                {row.summary && (
+                                                    <p className="text-xs text-gray-500 mt-1 break-words">
+                                                        {row.summary}
+                                                    </p>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-500">{row.time}</td>
+                                            <td className="px-4 py-3 text-right">
+                                                <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50">
+                                                    {row.severity}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td
+                                            className="px-4 py-4 text-center text-sm text-gray-500"
+                                            colSpan={3}
+                                        >
+                                            No segments returned for this run.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
 
-                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
-                            <h2 className="text-lg font-semibold text-gray-900">Notes</h2>
-                            <p className="mt-1 text-sm text-gray-500">
-                                Summaries and contextual observations captured by investigators.
-                            </p>
-                            <textarea
-                                rows={5}
-                                className="mt-4 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100"
-                                placeholder="Add follow-up actions or observations..."
-                            />
-                        </div>
-                    </aside>
-                </div>
+                <section className="rounded-3xl bg-white p-6 border border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900">Notes</h2>
+                    <p className="mt-1 text-sm text-gray-500">
+                        Summaries and contextual observations captured by investigators.
+                    </p>
+                    <textarea
+                        rows={5}
+                        className="mt-4 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-100"
+                        placeholder="Add follow-up actions or observations..."
+                    />
+                </section>
             </div>
         );
     }

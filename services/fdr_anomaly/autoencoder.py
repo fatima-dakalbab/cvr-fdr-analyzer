@@ -421,11 +421,28 @@ def detect_anomalies(
         for name, count in sorted(driver_counts.items(), key=lambda item: item[1], reverse=True)
     ]
 
+    if np.allclose(timeline_scores, timeline_scores[0]):
+        flagged_mask = np.zeros_like(timeline_scores, dtype=bool)
+    else:
+        flagged_mask = timeline_scores >= threshold
+
+    for segment in segments:
+        start_time = segment.get("start_time")
+        end_time = segment.get("end_time")
+        if start_time is None or end_time is None:
+            continue
+        flagged_mask |= (timestamps >= start_time) & (timestamps <= end_time)
+
+    flagged_row_count = int(flagged_mask.sum())
+    flagged_percent = (flagged_row_count / n_rows) * 100 if n_rows else 0.0
+
     summary = {
         "n_rows": int(n_rows),
         "n_params_used": int(len(feature_names)),
         "segments_found": int(len(segments)),
         "top_parameters": top_parameters,
+        "flaggedRowCount": flagged_row_count,
+        "flaggedPercent": round(flagged_percent, 4),
     }
 
     timeline = TimelineData(

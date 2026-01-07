@@ -135,6 +135,10 @@ const detectAnomaliesLocally = (rows = []) => {
         parameter,
         count,
       })),
+      flaggedRowCount: anomalyRows.size,
+      flaggedPercent: rows.length
+        ? Number(((anomalyRows.size / rows.length) * 100).toFixed(4))
+        : 0,
     },
     segments: anomalies.map((entry) => ({
       start_time: entry.time ?? entry.rowIndex,
