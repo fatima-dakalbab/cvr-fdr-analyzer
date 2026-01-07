@@ -12,6 +12,8 @@ ROLLING_WINDOW = 51
 IFOREST_CONTAMINATION = 0.01
 SEGMENT_GAP_SECONDS = 2.0
 TOP_DRIVER_COUNT = 3
+TIME_COLUMNS = {"Session Time", "System Time", "GPS Date & Time"}
+EXCLUDED_COLUMNS = set()
 
 VERTICAL_TOKENS = ("vertical speed", "pitch")
 LATERAL_TOKENS = ("roll", "turn rate")
@@ -53,7 +55,9 @@ def _parse_session_time(series: pd.Series) -> np.ndarray:
 
 
 def _numeric_parameters(df: pd.DataFrame, time_column: str) -> pd.DataFrame:
-    numeric_df = df.drop(columns=[time_column]).select_dtypes(include=[np.number])
+    excluded = {time_column, *TIME_COLUMNS, *EXCLUDED_COLUMNS}
+    drop_columns = [col for col in excluded if col in df.columns]
+    numeric_df = df.drop(columns=drop_columns).select_dtypes(include=[np.number])
     if numeric_df.empty:
         raise ValueError("No numeric parameters available for anomaly detection.")
     return numeric_df
@@ -174,6 +178,18 @@ def detect_anomalies(path: str) -> Dict[str, object]:
     anomaly_mask = (max_z.to_numpy() >= MAD_Z_THRESHOLD) | (iforest_pred == -1)
 
     segments = _group_segments(timestamps, anomaly_mask, robust_z, combined_score)
+    driver_counts: Dict[str, int] = {}
+    for segment in segments:
+        for driver in segment.get("top_drivers", []):
+            name = driver.get("parameter")
+            if not name:
+                continue
+            driver_counts[name] = driver_counts.get(name, 0) + 1
+
+    top_parameters = [
+        {"parameter": name, "count": count}
+        for name, count in sorted(driver_counts.items(), key=lambda item: item[1], reverse=True)
+    ]
 
     timeline = TimelineData(
         timestamps=timestamps.tolist(),
@@ -186,10 +202,12 @@ def detect_anomalies(path: str) -> Dict[str, object]:
     summary = {
         "total_points": int(len(df)),
         "total_parameters": int(numeric_df.shape[1]),
+        "n_params_used": int(numeric_df.shape[1]),
         "total_anomalies": int(anomaly_mask.sum()),
         "total_segments": int(len(segments)),
         "robust_z_threshold": MAD_Z_THRESHOLD,
         "iforest_contamination": IFOREST_CONTAMINATION,
+        "top_parameters": top_parameters,
     }
 
     return {
