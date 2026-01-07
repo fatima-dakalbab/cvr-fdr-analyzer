@@ -88,6 +88,8 @@ to configure a local instance that mirrors the production workflow:
    MINIO_SECRET_KEY=supersecret123
    MINIO_REGION=us-east-1
    MINIO_BUCKET=fdr-cvr-data
+
+   minio server $HOME/minio-data --address ":9000" --console-address ":9001"
    ```
 
    Optional overrides include `MINIO_USE_SSL`, `MINIO_PUBLIC_BASE_URL`, and the upload/download expiry timers.
