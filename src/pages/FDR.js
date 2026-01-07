@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import {
@@ -132,6 +132,7 @@ const flightDynamicsParameterSet = new Set(
 
 const sampleNormalizedRows = [
     {
+        sessionTimeSeconds: 0,
         time: "00:00",
         "GPS Altitude (feet)": 1200,
         "Pressure Altitude (ft)": 1185,
@@ -150,6 +151,7 @@ const sampleNormalizedRows = [
         "Roll (deg)": 0.2,
     },
     {
+        sessionTimeSeconds: 10,
         time: "00:10",
 "GPS Altitude (feet)": 1800,
         "Pressure Altitude (ft)": 1782,
@@ -168,6 +170,7 @@ const sampleNormalizedRows = [
         "Roll (deg)": 0.1,
     },
     {
+        sessionTimeSeconds: 20,
         time: "00:20",
         "GPS Altitude (feet)": 2400,
         "Pressure Altitude (ft)": 2388,
@@ -186,6 +189,7 @@ const sampleNormalizedRows = [
         "Roll (deg)": -0.1,
     },
     {
+        sessionTimeSeconds: 30,
         time: "00:30",
         "GPS Altitude (feet)": 2900,
         "Pressure Altitude (ft)": 2885,
@@ -204,6 +208,7 @@ const sampleNormalizedRows = [
         "Roll (deg)": -0.3,
     },
     {
+        sessionTimeSeconds: 40,
         time: "00:40",
         "GPS Altitude (feet)": 3200,
         "Pressure Altitude (ft)": 3190,
@@ -222,6 +227,7 @@ const sampleNormalizedRows = [
         "Roll (deg)": -0.6,
     },
     {
+        sessionTimeSeconds: 50,
         time: "00:50",
         "GPS Altitude (feet)": 3600,
         "Pressure Altitude (ft)": 3592,
@@ -256,6 +262,46 @@ const algorithmDisplayNames = {
 };
 
 const normalizeHeader = (value = "") => String(value || "").trim().toLowerCase();
+
+const parseTimeToSeconds = (value) => {
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+
+    if (typeof value !== "string") {
+        return null;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return null;
+    }
+
+    const tPlusMatch = trimmed.match(/^T\+(\d+)(?:s)?$/i);
+    if (tPlusMatch) {
+        return Number(tPlusMatch[1]);
+    }
+
+    const timeMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (timeMatch) {
+        const [, hoursOrMinutes, minutesOrSeconds, seconds] = timeMatch;
+        if (seconds !== undefined) {
+            const hours = Number(hoursOrMinutes);
+            const minutes = Number(minutesOrSeconds);
+            const secs = Number(seconds);
+            return hours * 3600 + minutes * 60 + secs;
+        }
+        return Number(hoursOrMinutes) * 60 + Number(minutesOrSeconds);
+    }
+
+    return null;
+};
+
+const TIME_WINDOW_PADDING_SECONDS = 8;
 
 
 const toNumber = (value) => {
@@ -402,7 +448,12 @@ const normalizeFdrRows = (csvText) => {
     const columnMap = buildParameterColumnMap(headers);
 
     return rawRows.map((row, index) => {
+        const sessionTimeSeconds = pickNumeric(row, ["Session Time"]);
         const normalized = { time: resolveTimeLabel(row, index) };
+
+        if (sessionTimeSeconds !== null) {
+            normalized.sessionTimeSeconds = sessionTimeSeconds;
+        }
 
         fdrParameterMap.forEach(({ id }) => {
             const columnsToTry = columnMap[id]?.length ? columnMap[id] : [id];
@@ -430,6 +481,9 @@ const buildCardSamplesFromRows = (rows) => {
             rows
                 .map((row) => {
                     const entry = { time: row.time };
+                    if (Number.isFinite(row.sessionTimeSeconds)) {
+                        entry.sessionTimeSeconds = row.sessionTimeSeconds;
+                    }
                     parameters.forEach((parameter) => {
                         if (row[parameter] !== undefined) {
                             entry[parameter] = row[parameter];
@@ -488,6 +542,9 @@ const buildDetectionTrendSeries = (rows) =>
             .filter((row) => row.time && hasNumericValue(row, detectionTrendKeys))
             .map((row) => {
                 const entry = { time: row.time };
+                if (Number.isFinite(row.sessionTimeSeconds)) {
+                    entry.sessionTimeSeconds = row.sessionTimeSeconds;
+                }
                 detectionTrendKeys.forEach((key) => {
                     if (row[key] !== undefined) {
                         entry[key] = row[key];
@@ -497,6 +554,67 @@ const buildDetectionTrendSeries = (rows) =>
             }),
         240
     );
+
+const applyTimeWindow = (series, timeWindow, timeKey) => {
+    if (!timeWindow || !Array.isArray(series) || series.length === 0) {
+        return series;
+    }
+
+    const startTime = Number(timeWindow.startTime);
+    const endTime = Number(timeWindow.endTime);
+
+    if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+        return series;
+    }
+
+    const paddedStart = Math.max(0, Math.min(startTime, endTime) - TIME_WINDOW_PADDING_SECONDS);
+    const paddedEnd = Math.max(startTime, endTime) + TIME_WINDOW_PADDING_SECONDS;
+
+    if (timeKey === "sessionTimeSeconds") {
+        const hasCompleteTime = series.every((row) =>
+            Number.isFinite(row?.[timeKey])
+        );
+        if (!hasCompleteTime) {
+            return series.filter((row) => {
+                const parsedTime = parseTimeToSeconds(row?.time);
+                if (parsedTime === null) {
+                    return true;
+                }
+                return parsedTime >= paddedStart && parsedTime <= paddedEnd;
+            });
+        }
+
+        const lowerBound = (value) => {
+            let low = 0;
+            let high = series.length;
+            while (low < high) {
+                const mid = Math.floor((low + high) / 2);
+                const midValue = series[mid]?.[timeKey];
+                if (!Number.isFinite(midValue)) {
+                    return 0;
+                }
+                if (midValue < value) {
+                    low = mid + 1;
+                } else {
+                    high = mid;
+                }
+            }
+            return low;
+        };
+
+        const startIndex = lowerBound(paddedStart);
+        const endIndex = lowerBound(paddedEnd + 0.0001);
+        return series.slice(startIndex, endIndex);
+    }
+
+    return series.filter((row) => {
+        const parsedTime = parseTimeToSeconds(row?.[timeKey]);
+        if (parsedTime === null) {
+            return true;
+        }
+        return parsedTime >= paddedStart && parsedTime <= paddedEnd;
+    });
+};
 
 const summarizeSeriesProfile = (data = [], key) => {
     const values = data
@@ -569,6 +687,9 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [anomalyError, setAnomalyError] = useState("");
     const [isLoadingFdrData, setIsLoadingFdrData] = useState(false);
     const [fdrDataError, setFdrDataError] = useState("");
+    const [activeWindow, setActiveWindow] = useState(null);
+    const [selectedAnomalyId, setSelectedAnomalyId] = useState(null);
+    const [hasAnalysisRun, setHasAnalysisRun] = useState(false);
     const isLinkedRoute = Boolean(caseNumber);
     const [workflowStage, setWorkflowStage] = useState(
         isLinkedRoute ? "analysis" : "caseSelection"
@@ -666,6 +787,16 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [linkError, setLinkError] = useState("");
     const [missingDataTypes, setMissingDataTypes] = useState([]);
     const lastLinkedCaseRef = useRef(null);
+    const visualizationRef = useRef(null);
+    const pendingScrollRef = useRef(false);
+    const timeAxisKey = useMemo(() => {
+        if (!Array.isArray(normalizedRows) || normalizedRows.length === 0) {
+            return "time";
+        }
+        return normalizedRows.some((row) => Number.isFinite(row.sessionTimeSeconds))
+            ? "sessionTimeSeconds"
+            : "time";
+    }, [normalizedRows]);
 
     useEffect(() => {
         if (!caseNumber) {
@@ -866,6 +997,82 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         });
     }, [availableParameters]);
 
+    useEffect(() => {
+        if (!selectedCase) {
+            return;
+        }
+        setActiveWindow(null);
+        setSelectedAnomalyId(null);
+        setHasAnalysisRun(false);
+    }, [selectedCase]);
+
+    useEffect(() => {
+        if (!pendingScrollRef.current || workflowStage !== "analysis") {
+            return;
+        }
+
+        const target = visualizationRef.current;
+        if (target) {
+            pendingScrollRef.current = false;
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    }, [workflowStage, activeWindow]);
+
+    const resolveTimeValue = useCallback((value) => {
+        if (typeof value === "number" && Number.isFinite(value)) {
+            return value;
+        }
+        return parseTimeToSeconds(value);
+    }, []);
+
+    const buildWindowFromRow = useCallback(
+        (row, fallbackIndex) => {
+            if (!row) {
+                return null;
+            }
+
+            const startRaw =
+                row?.start_time ?? row?.startTime ?? row?.start ?? row?.from ?? row?.window_start;
+            const endRaw =
+                row?.end_time ?? row?.endTime ?? row?.end ?? row?.to ?? row?.window_end;
+            const startValue = resolveTimeValue(startRaw);
+            const endValue = resolveTimeValue(endRaw);
+
+            if (startValue !== null && endValue !== null) {
+                return {
+                    startTime: Math.min(startValue, endValue),
+                    endTime: Math.max(startValue, endValue),
+                };
+            }
+
+            const timestamp =
+                row?.timestamp || row?.time || row?.TIME || row?.datetime || row?.recorded_at;
+            const timestampValue = resolveTimeValue(timestamp);
+            if (timestampValue !== null) {
+                return {
+                    startTime: timestampValue,
+                    endTime: timestampValue,
+                };
+            }
+
+            const indexValue = resolveTimeValue(fallbackIndex);
+            if (indexValue !== null) {
+                const directRow = normalizedRows[indexValue];
+                const fallbackRow =
+                    directRow || normalizedRows[Math.max(0, indexValue - 1)];
+                const rowValue =
+                    fallbackRow?.sessionTimeSeconds ??
+                    resolveTimeValue(fallbackRow?.time);
+                if (rowValue !== null) {
+                    return { startTime: rowValue, endTime: rowValue };
+                }
+            }
+
+            return null;
+        },
+        [normalizedRows, resolveTimeValue]
+    );
+
     const handleNavigateToCases = () => {
         navigate("/cases");
     };
@@ -935,6 +1142,36 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         );
     };
 
+    const handleResetZoom = () => {
+        setActiveWindow(null);
+        setSelectedAnomalyId(null);
+    };
+
+    const handleJumpToInterval = (row) => {
+        const window =
+            row?.timeWindow ||
+            buildWindowFromRow(
+                row,
+                row?.rowIndex ?? row?.row_number ?? row?.index ?? row?.row
+            );
+        if (!window) {
+            return;
+        }
+        setActiveWindow(window);
+        setSelectedAnomalyId(row.id);
+        pendingScrollRef.current = true;
+        if (workflowStage !== "analysis") {
+            setWorkflowStage("analysis");
+            return;
+        }
+
+        const target = visualizationRef.current;
+        if (target) {
+            pendingScrollRef.current = false;
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    };
+
     const handleRunDetection = async () => {
         if (availableParameters.length === 0 || !caseNumber) {
             return;
@@ -943,6 +1180,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         setIsRunningDetection(true);
         setAnomalyError("");
         setAnomalyResult(null);
+        setHasAnalysisRun(false);
 
         try {
             const result = await runFdrAnomalyDetection(caseNumber, {
@@ -950,6 +1188,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 rows: normalizedRows,
             });
             setAnomalyResult(result);
+            setHasAnalysisRun(true);
             setWorkflowStage((prev) =>
                 prev === "analysis" ? "detectionComplete" : prev
             );
@@ -958,6 +1197,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             setAnomalyError(
                 error?.message || "Unable to run anomaly detection for this case."
             );
+            setHasAnalysisRun(false);
         } finally {
             setIsRunningDetection(false);
         }
@@ -983,6 +1223,22 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             ? (anomalyCount / totalRows) * 100
             : null);
     const noAnomaliesDetected = Boolean(anomalyResult) && anomalyCount === 0;
+    const formattedActiveWindow = useMemo(() => {
+        if (!activeWindow || !hasAnalysisRun) {
+            return null;
+        }
+        const start = Number(activeWindow.startTime);
+        const end = Number(activeWindow.endTime);
+        if (!Number.isFinite(start) || !Number.isFinite(end)) {
+            return null;
+        }
+        const duration = Math.max(0, end - start);
+        return {
+            startLabel: formatSessionTime(start),
+            endLabel: formatSessionTime(end),
+            duration,
+        };
+    }, [activeWindow]);
     const topAnomalyParameters = useMemo(() => {
         if (!anomalyResult) {
             return [];
@@ -1061,6 +1317,12 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         return topAnomalyParameters;
     }, [anomalyResult, topAnomalyParameters]);
+    const filteredDetectionTrendData = useMemo(() => {
+        if (!hasAnalysisRun) {
+            return detectionTrendData;
+        }
+        return applyTimeWindow(detectionTrendData, activeWindow, timeAxisKey);
+    }, [detectionTrendData, activeWindow, hasAnalysisRun, timeAxisKey]);
 
     const renderSampleValues = (row) => {
         if (!row || typeof row !== "object") {
@@ -1120,6 +1382,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 const timestamp =
                     row?.timestamp || row?.time || row?.TIME || row?.datetime || row?.recorded_at;
                 const severity = row?.severity || row?.score;
+                const timeWindow = buildWindowFromRow(row, rowLabel);
 
                 return {
                     id: `${rowLabel}-${index}`,
@@ -1127,9 +1390,10 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     time: timestamp || `Row ${rowLabel}`,
                     severity: severity || "Flagged",
                     summary: renderSampleValues(row),
+                    timeWindow,
                 };
             }),
-        [sampleRows]
+        [buildWindowFromRow, sampleRows]
     );
 
         const renderDashboardCards = () =>
@@ -1147,6 +1411,9 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             const chartData = (cardSamples[card.key] || [])
                 .map((row) => {
                     const entry = { time: row.time };
+                    if (Number.isFinite(row.sessionTimeSeconds)) {
+                        entry.sessionTimeSeconds = row.sessionTimeSeconds;
+                    }
                     visibleParameters.forEach((parameter) => {
                         if (typeof row[parameter] === "number" && !Number.isNaN(row[parameter])) {
                             entry[parameter] = row[parameter];
@@ -1155,7 +1422,10 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     return entry;
                 })
                 .filter((row) => row.time && hasNumericValue(row, visibleParameters));
-            const hasData = chartData.length > 0 && visibleParameters.length > 0;
+            const filteredChartData = hasAnalysisRun
+                ? applyTimeWindow(chartData, activeWindow, timeAxisKey)
+                : chartData;
+            const hasData = filteredChartData.length > 0 && visibleParameters.length > 0;
             const showNoMatch =
                 selectedForCard.length > 0 &&
                 (visibleParameters.length === 0 || chartData.length === 0);
@@ -1188,18 +1458,34 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 <div className="min-h-[260px]">
                     <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart
-                            data={chartData}
+                            data={filteredChartData}
                             margin={{ top: 12, right: 24, left: 0, bottom: 0 }}
                         >
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                            <XAxis dataKey="time" stroke="#94a3b8" minTickGap={20} />
+                            <XAxis
+                                dataKey={timeAxisKey}
+                                stroke="#94a3b8"
+                                minTickGap={20}
+                                tickFormatter={
+                                    timeAxisKey === "sessionTimeSeconds"
+                                        ? (value) => formatSessionTime(value)
+                                        : undefined
+                                }
+                            />
                             <YAxis
                                 stroke="#94a3b8"
                                 allowDataOverflow={hasMultiScaleData}
                                 domain={["auto", "auto"]}
                                 padding={hasMultiScaleData ? { top: 12, bottom: 12 } : { top: 8, bottom: 8 }}
                             />
-                            <Tooltip cursor={{ stroke: "#cbd5e1" }} />
+                            <Tooltip
+                                cursor={{ stroke: "#cbd5e1" }}
+                                labelFormatter={
+                                    timeAxisKey === "sessionTimeSeconds"
+                                        ? (value) => formatSessionTime(value)
+                                        : undefined
+                                }
+                            />
                             {visibleParameters.map((parameter) => {
                                 const config = parameterMetadata[parameter];
                                 const stroke = config?.color ?? "#0f172a";
@@ -1243,6 +1529,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
             const emptyMessage = showNoMatch
                 ? "No matching numeric column found for this selection."
+                : hasAnalysisRun && activeWindow
+                  ? "No data points fall within the selected interval."
                 : "Select parameters from the left to visualize this card.";
 
             return (
@@ -1621,11 +1909,25 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             </div>
                             <div className="mt-6 h-72">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={detectionTrendData}>
+                                    <ComposedChart data={filteredDetectionTrendData}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                        <XAxis dataKey="time" stroke="#94a3b8" />
+                                        <XAxis
+                                            dataKey={timeAxisKey}
+                                            stroke="#94a3b8"
+                                            tickFormatter={
+                                                timeAxisKey === "sessionTimeSeconds"
+                                                    ? (value) => formatSessionTime(value)
+                                                    : undefined
+                                            }
+                                        />
                                         <YAxis stroke="#94a3b8" />
-                                        <Tooltip />
+                                        <Tooltip
+                                            labelFormatter={
+                                                timeAxisKey === "sessionTimeSeconds"
+                                                    ? (value) => formatSessionTime(value)
+                                                    : undefined
+                                            }
+                                        />
                                         <Bar
                                             dataKey="PERCENT_POWER"
                                             name="Percent Power"
@@ -1677,12 +1979,20 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                             <th className="px-4 py-3 text-left">Parameter</th>
                                             <th className="px-4 py-3 text-left">Timestamp</th>
                                             <th className="px-4 py-3 text-right">Severity</th>
+                                            <th className="px-4 py-3 text-right">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {anomalyTableRows.length > 0 ? (
                                             anomalyTableRows.map((row) => (
-                                                <tr key={row.id} className="hover:bg-gray-50">
+                                                <tr
+                                                    key={row.id}
+                                                    className={`hover:bg-gray-50 ${
+                                                        row.id === selectedAnomalyId
+                                                            ? "bg-emerald-50/70"
+                                                            : ""
+                                                    }`}
+                                                >
                                                     <td className="px-4 py-3 font-medium text-gray-800">
                                                         <div>{row.parameter}</div>
                                                         {row.summary && (
@@ -1697,13 +2007,29 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                             {row.severity}
                                                         </span>
                                                     </td>
+                                                    <td className="px-4 py-3 text-right">
+                                                        {hasAnalysisRun && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleJumpToInterval(row)}
+                                                                disabled={!row.timeWindow}
+                                                                className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold transition ${
+                                                                    row.timeWindow
+                                                                        ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                                                                        : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                                                }`}
+                                                            >
+                                                                View in charts
+                                                            </button>
+                                                        )}
+                                                    </td>
                                                 </tr>
                                             ))
                                         ) : (
                                             <tr>
                                                 <td
                                                     className="px-4 py-4 text-center text-sm text-gray-500"
-                                                    colSpan={3}
+                                                    colSpan={4}
                                                 >
                                                     No sample anomalies returned for this run.
                                                 </td>
@@ -1946,8 +2272,11 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 </section>
 
                 <div className="space-y-6">
-                    <section className="bg-white border border-gray-200 rounded-xl p-6">
-                        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <section
+                        ref={visualizationRef}
+                        className="bg-white border border-gray-200 rounded-xl p-6"
+                    >
+                        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900">
                                     Flight Parameter Overview
@@ -1957,10 +2286,43 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                     parameters.
                                 </p>
                             </div>
-                            <p className="text-xs text-gray-500">
-                                Charts resize with available space for clearer trend comparisons.
-                            </p>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <p className="text-xs text-gray-500">
+                                    Charts resize with available space for clearer trend comparisons.
+                                </p>
+                                {hasAnalysisRun && (
+                                    <button
+                                        type="button"
+                                        onClick={handleResetZoom}
+                                        disabled={!activeWindow}
+                                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                                            activeWindow
+                                                ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                                                : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                        }`}
+                                    >
+                                        Reset to full flight
+                                    </button>
+                                )}
+                            </div>
                         </div>
+
+                        {formattedActiveWindow && hasAnalysisRun && (
+                            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                                <span>
+                                    Viewing interval: {formattedActiveWindow.startLabel} –{" "}
+                                    {formattedActiveWindow.endLabel} (
+                                    {Math.round(formattedActiveWindow.duration)}s)
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleResetZoom}
+                                    className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+                                >
+                                    Reset to full flight
+                                </button>
+                            </div>
+                        )}
 
                         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                             {renderDashboardCards()}
@@ -2071,34 +2433,55 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                 <p className="text-xs font-semibold text-gray-700">Sample anomalous rows</p>
                                                 {sampleRows.length > 0 ? (
                                                     <ul className="space-y-2">
-                                                        {sampleRows.slice(0, 5).map((row, index) => {
-                                                            const rowLabel =
-                                                                row?.rowIndex ||
-                                                                row?.row_number ||
-                                                                row?.index ||
-                                                                row?.row ||
-                                                                index + 1;
-                                                            const severity = row?.severity || row?.score;
+                                                {sampleRows.slice(0, 5).map((row, index) => {
+                                                    const rowLabel =
+                                                        row?.rowIndex ||
+                                                        row?.row_number ||
+                                                        row?.index ||
+                                                        row?.row ||
+                                                        index + 1;
+                                                    const severity = row?.severity || row?.score;
+                                                    const timeWindow = buildWindowFromRow(row, rowLabel);
 
-                                                            return (
-                                                                <li
-                                                                    key={`${rowLabel}-${index}`}
-                                                                    className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
-                                                                >
-                                                                    <div className="flex items-center justify-between">
-                                                                        <span className="font-semibold text-gray-800">
-                                                                            Row {rowLabel}
+                                                    return (
+                                                        <li
+                                                            key={`${rowLabel}-${index}`}
+                                                            className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
+                                                        >
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="font-semibold text-gray-800">
+                                                                    Row {rowLabel}
+                                                                </span>
+                                                                <div className="flex items-center gap-2">
+                                                                    {severity && (
+                                                                        <span className="text-xs rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
+                                                                            {severity}
                                                                         </span>
-                                                                        {severity && (
-                                                                            <span className="text-xs rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
-                                                                                {severity}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                    <p className="text-xs text-gray-600 break-words">
-                                                                        {renderSampleValues(row)}
-                                                                    </p>
-                                                                </li>
+                                                                    )}
+                                                                    {hasAnalysisRun && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleJumpToInterval({
+                                                                                ...row,
+                                                                                id: `sample-${rowLabel}-${index}`,
+                                                                                timeWindow,
+                                                                            })}
+                                                                            disabled={!timeWindow}
+                                                                            className={`rounded-full px-2 py-0.5 text-xs font-semibold transition ${
+                                                                                timeWindow
+                                                                                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                                                                                    : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                                                            }`}
+                                                                        >
+                                                                            View in charts
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <p className="text-xs text-gray-600 break-words">
+                                                                {renderSampleValues(row)}
+                                                            </p>
+                                                        </li>
                                                             );
                                                         })}
                                                     </ul>
