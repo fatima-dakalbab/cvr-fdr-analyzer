@@ -3,7 +3,7 @@ const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
-const { findCaseByNumber } = require('./cases');
+const { findCaseByNumber, updateCaseFdrAnalysis } = require('./cases');
 const { downloadObjectAsBuffer } = require('./storage');
 const fdrParameterMap = require('../config/fdr-parameter-map');
 
@@ -32,6 +32,7 @@ const FEATURE_TO_CSV_HEADER = MODEL_FEATURES.reduce((acc, feature) => {
 }, {});
 
 const TIMESTAMP_FIELDS = ['GPS Date & Time', 'Session Time', 'System Time'];
+const ANALYSIS_VERSION = '1.0';
 const PYTHON_BIN = process.env.PYTHON_BIN || 'python3';
 const PYTHON_MODULE = 'services.fdr_anomaly.run_detect';
 const PYTHON_CWD = path.resolve(__dirname, '../../..');
@@ -330,7 +331,13 @@ const analyzeFdrForCase = async (caseNumber, options = {}) => {
 
   try {
     await fs.writeFile(tempFilePath, fileBuffer);
-    return await runPythonDetection(tempFilePath);
+    const analysis = await runPythonDetection(tempFilePath);
+    const payload = {
+      ...analysis,
+      analysis_version: analysis?.analysis_version || ANALYSIS_VERSION,
+    };
+    await updateCaseFdrAnalysis(caseNumber, payload);
+    return payload;
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

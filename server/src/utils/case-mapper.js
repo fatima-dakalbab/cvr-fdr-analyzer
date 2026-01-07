@@ -33,6 +33,8 @@ const mapToDbCase = (payload) => {
     date,
     tags = [],
     analyses,
+    fdrAnalysis,
+    fdrAnalysisUpdatedAt,
     timeline = [],
     attachments = [],
     investigator = {},
@@ -54,6 +56,8 @@ const mapToDbCase = (payload) => {
     occurrence_date: normalizeDate(date),
     tags: Array.isArray(tags) ? tags : [],
     analyses: analyses && typeof analyses === 'object' ? analyses : DEFAULT_ANALYSES,
+    fdr_analysis: fdrAnalysis && typeof fdrAnalysis === 'object' ? fdrAnalysis : null,
+    fdr_analysis_updated_at: fdrAnalysisUpdatedAt || null,
     timeline: Array.isArray(timeline) ? timeline : [],
     attachments: Array.isArray(attachments) ? attachments : [],
     investigator: investigator && typeof investigator === 'object' ? investigator : {},
@@ -76,6 +80,10 @@ const mapFromDbCase = (row) => ({
   date: row.occurrence_date ? row.occurrence_date.toISOString().slice(0, 10) : null,
   tags: row.tags || [],
   analyses: row.analyses || DEFAULT_ANALYSES,
+  fdrAnalysis: row.fdr_analysis || null,
+  fdrAnalysisUpdatedAt: row.fdr_analysis_updated_at
+    ? row.fdr_analysis_updated_at.toISOString()
+    : null,
   timeline: row.timeline || [],
   attachments: row.attachments || [],
   investigator: row.investigator || {},

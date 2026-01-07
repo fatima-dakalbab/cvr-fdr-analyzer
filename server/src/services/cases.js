@@ -145,6 +145,8 @@ const createCase = async (payload) => {
       occurrence_date,
       tags,
       analyses,
+      fdr_analysis,
+      fdr_analysis_updated_at,
       timeline,
       attachments,
       investigator,
@@ -152,8 +154,8 @@ const createCase = async (payload) => {
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-      $11, $12, $13, $14::jsonb, $15::jsonb, $16::jsonb,
-      $17::jsonb, $18::jsonb
+      $11, $12, $13, $14::jsonb, $15::jsonb, $16,
+      $17::jsonb, $18::jsonb, $19::jsonb, $20::jsonb
     )
     RETURNING *
   `;
@@ -173,6 +175,8 @@ const createCase = async (payload) => {
     data.occurrence_date,
     data.tags,
     toJsonbParameter(data.analyses, {}),
+    toJsonbParameter(data.fdr_analysis, null),
+    data.fdr_analysis_updated_at,
     toJsonbParameter(data.timeline, []),
     toJsonbParameter(data.attachments, []),
     toJsonbParameter(data.investigator, {}),
@@ -208,11 +212,13 @@ const updateCase = async (caseNumber, payload) => {
       occurrence_date = $11,
       tags = $12,
       analyses = $13::jsonb,
-      timeline = $14::jsonb,
-      attachments = $15::jsonb,
-      investigator = $16::jsonb,
-      aircraft = $17::jsonb
-    WHERE case_number = $18
+      fdr_analysis = $14::jsonb,
+      fdr_analysis_updated_at = $15,
+      timeline = $16::jsonb,
+      attachments = $17::jsonb,
+      investigator = $18::jsonb,
+      aircraft = $19::jsonb
+    WHERE case_number = $20
     RETURNING *
   `;
 
@@ -230,6 +236,8 @@ const updateCase = async (caseNumber, payload) => {
     data.occurrence_date,
     data.tags,
     toJsonbParameter(data.analyses, {}),
+    toJsonbParameter(data.fdr_analysis, null),
+    data.fdr_analysis_updated_at,
     toJsonbParameter(data.timeline, []),
     toJsonbParameter(data.attachments, []),
     toJsonbParameter(data.investigator, {}),
@@ -251,10 +259,31 @@ const deleteCase = async (caseNumber) => {
   return rowCount > 0;
 };
 
+const updateCaseFdrAnalysis = async (caseNumber, analysisPayload) => {
+  const query = `
+    UPDATE cases
+    SET
+      fdr_analysis = $1::jsonb,
+      fdr_analysis_updated_at = NOW()
+    WHERE case_number = $2
+    RETURNING *
+  `;
+
+  const values = [toJsonbParameter(analysisPayload, null), caseNumber];
+  const result = await pool.query(query, values);
+  const rows = extractRows(result);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return null;
+  }
+
+  return hydrateCaseRow(rows[0]);
+};
+
 module.exports = {
   listCases,
   findCaseByNumber,
   createCase,
   updateCase,
   deleteCase,
+  updateCaseFdrAnalysis,
 };

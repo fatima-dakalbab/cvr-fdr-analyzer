@@ -11,6 +11,7 @@ const EXCLUDED_PARAMETERS = new Set([
   'System Time',
   'GPS Date & Time',
 ]);
+const ANALYSIS_VERSION = '1.0';
 
 const toNumeric = (value) => {
   const parsed = Number.parseFloat(value);
@@ -108,13 +109,14 @@ const detectAnomaliesLocally = (rows = []) => {
 
   const anomalies = Array.from(anomalyRows).map((rowIndex) => {
     const row = rows[rowIndex] || {};
+    const sessionTime = typeof row.sessionTime === 'number' ? row.sessionTime : row.time;
     const triggeredParameters = rowParameterHits[rowIndex]
       ? Array.from(rowParameterHits[rowIndex])
       : [];
     return {
       id: `row-${rowIndex}`,
       rowIndex,
-      time: row.time,
+      time: sessionTime ?? rowIndex,
       parameter:
         triggeredParameters[0] ||
         usedParameters.find(
@@ -126,7 +128,14 @@ const detectAnomaliesLocally = (rows = []) => {
     };
   });
 
+  const sortedRows = [...rows].sort((a, b) => {
+    const timeA = typeof a.sessionTime === 'number' ? a.sessionTime : toNumeric(a.time) ?? 0;
+    const timeB = typeof b.sessionTime === 'number' ? b.sessionTime : toNumeric(b.time) ?? 0;
+    return timeA - timeB;
+  });
+
   return {
+    analysis_version: ANALYSIS_VERSION,
     summary: {
       n_rows: rows.length,
       n_params_used: usedParameters.length,
@@ -156,7 +165,10 @@ const detectAnomaliesLocally = (rows = []) => {
         'Review recommended. Unusual behavior pattern compared to learned normal behavior for this flight.',
     })),
     timeline: {
-      time: rows.map((row, index) => row.time ?? index),
+      time: sortedRows.map((row, index) => {
+        const sessionTime = typeof row.sessionTime === 'number' ? row.sessionTime : toNumeric(row.time);
+        return Number.isFinite(sessionTime) ? sessionTime : index;
+      }),
       score: rows.map(() => 0),
     },
   };
