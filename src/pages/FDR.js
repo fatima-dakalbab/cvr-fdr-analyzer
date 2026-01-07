@@ -9,7 +9,6 @@ import {
     YAxis,
     Tooltip,
     Line,
-    ReferenceArea,
     ReferenceLine,
 } from "recharts";
 import { fetchCaseByNumber, updateCase } from "../api/cases";
@@ -147,7 +146,6 @@ const parameterGroupDefinitions = [
 
 const defaultVisibleChartsPerGroup = 8;
 const maxChartPoints = 1200;
-const maxSegmentChartPoints = 600;
 const timeSources = {
     session: "session",
     gps: "gps",
@@ -599,6 +597,42 @@ const downsampleSeries = (series, maxPoints = maxChartPoints) => {
     return sampled;
 };
 
+const downsampleEvidenceSeries = (series, maxPoints = 800) => {
+    if (series.length <= maxPoints) {
+        return series;
+    }
+    const bucketSize = Math.ceil(series.length / maxPoints);
+    const sampled = [];
+    for (let i = 0; i < series.length; i += bucketSize) {
+        const bucket = series.slice(i, i + bucketSize);
+        if (!bucket.length) {
+            continue;
+        }
+        let timeSum = 0;
+        let timeCount = 0;
+        let valueSum = 0;
+        let valueCount = 0;
+        bucket.forEach((point) => {
+            if (Number.isFinite(point.time)) {
+                timeSum += point.time;
+                timeCount += 1;
+            }
+            if (typeof point.value === "number" && !Number.isNaN(point.value)) {
+                valueSum += point.value;
+                valueCount += 1;
+            }
+        });
+        if (!timeCount || !valueCount) {
+            continue;
+        }
+        sampled.push({
+            time: timeSum / timeCount,
+            value: valueSum / valueCount,
+        });
+    }
+    return sampled;
+};
+
 const deriveAvailableParameters = (rows, orderedHeaders = []) => {
     const available = new Set();
 
@@ -742,6 +776,13 @@ const summarizeSeriesProfile = (data = [], key) => {
 const getSeriesRenderConfig = (data = [], key) => {
     summarizeSeriesProfile(data, key);
     return { variant: "line", lineType: "monotone" };
+};
+
+const getEvidenceSeriesRenderConfig = (data = [], key) => {
+    const profile = summarizeSeriesProfile(data, key);
+    const lineType =
+        profile.isBinary || profile.isLowCardinality ? "stepAfter" : "monotone";
+    return { variant: "line", lineType };
 };
 
 const sampleParameterHeaders = Object.keys(sampleNormalizedRows[0] || {}).filter(
@@ -1529,21 +1570,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             endTime: Math.max(startTime, endTime),
         };
     };
-    const segmentPaddingSeconds = 20;
-    const resolveSegmentWindowBounds = (segment, paddingSeconds = segmentPaddingSeconds) => {
-        const bounds = resolveSegmentTimeBounds(segment);
-        if (!bounds) {
-            return null;
-        }
-        const padding = paddingSeconds;
-        return {
-            windowStart: bounds.startTime - padding,
-            windowEnd: bounds.endTime + padding,
-            anomalyStart: bounds.startTime,
-            anomalyEnd: bounds.endTime,
-        };
-    };
-
     const resolveSegmentDrivers = useCallback(
         (segment, limit = 3) => {
             const drivers = Array.isArray(segment?.top_drivers)
@@ -1687,33 +1713,29 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         }
     };
 
-    const buildSegmentChartData = (
-        parameter,
-        bounds,
-        paddingSeconds = segmentPaddingSeconds
-    ) => {
+    const buildSegmentChartData = (parameter, bounds) => {
         if (!parameter || !bounds) {
-            return [];
+            return { rawData: [], chartData: [] };
         }
-        const padding = paddingSeconds;
-        const lower = bounds.startTime - padding;
-        const upper = bounds.endTime + padding;
-        return downsampleSeries(
-            normalizedRows
-                .map((row) => ({
-                    time: row.time,
-                    value: row[parameter],
-                }))
-                .filter(
-                    (row) =>
-                        typeof row.time === "number" &&
-                        typeof row.value === "number" &&
-                        !Number.isNaN(row.value) &&
-                        row.time >= lower &&
-                        row.time <= upper
-                ),
-            maxSegmentChartPoints
-        );
+        const lower = bounds.startTime;
+        const upper = bounds.endTime;
+        const rawData = normalizedRows
+            .map((row) => ({
+                time: row.time,
+                value: row[parameter],
+            }))
+            .filter(
+                (row) =>
+                    typeof row.time === "number" &&
+                    typeof row.value === "number" &&
+                    !Number.isNaN(row.value) &&
+                    row.time >= lower &&
+                    row.time <= upper
+            );
+        return {
+            rawData,
+            chartData: downsampleEvidenceSeries(rawData, 800),
+        };
     };
 
     const renderParameterCard = (parameter) => {
@@ -2479,7 +2501,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 const timeRange = formatSegmentTimeRange(segment, index);
                                 const severity = formatSeverityLabel(segment?.severity);
                                 const timeBounds = resolveSegmentTimeBounds(segment);
-                                const windowBounds = resolveSegmentWindowBounds(segment);
                                 const interpretation = resolveSegmentInterpretation(segment);
 
                                 return (
@@ -2558,7 +2579,10 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                 <div className="grid gap-4 lg:grid-cols-3">
                                                     {topDrivers.length > 0 ? (
                                                         topDrivers.map((driver) => {
-                                                            const chartData = buildSegmentChartData(
+                                                            const {
+                                                                rawData,
+                                                                chartData,
+                                                            } = buildSegmentChartData(
                                                                 driver.param,
                                                                 timeBounds
                                                             );
@@ -2566,6 +2590,11 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                                 ? ` (${driver.unit})`
                                                                 : "";
                                                             const stats = driver.stats;
+                                                            const renderConfig =
+                                                                getEvidenceSeriesRenderConfig(
+                                                                    rawData,
+                                                                    "value"
+                                                                );
 
                                                             return (
                                                                 <div
@@ -2614,24 +2643,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                                                         stroke="#94a3b8"
                                                                                         domain={["auto", "auto"]}
                                                                                     />
-                                                                                    {windowBounds && (
-                                                                                        <ReferenceArea
-                                                                                            x1={windowBounds.windowStart}
-                                                                                            x2={windowBounds.windowEnd}
-                                                                                            fill="#dbeafe"
-                                                                                            stroke="#60a5fa"
-                                                                                            strokeOpacity={0.4}
-                                                                                        />
-                                                                                    )}
-                                                                                    {timeBounds && (
-                                                                                        <ReferenceArea
-                                                                                            x1={timeBounds.startTime}
-                                                                                            x2={timeBounds.endTime}
-                                                                                            fill="#fee2e2"
-                                                                                            stroke="#ef4444"
-                                                                                            strokeOpacity={0.7}
-                                                                                        />
-                                                                                    )}
                                                                                     <Tooltip
                                                                                         content={({
                                                                                             active,
@@ -2667,10 +2678,12 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                                                         }}
                                                                                     />
                                                                                     <Line
-                                                                                        type="monotone"
+                                                                                        type={
+                                                                                            renderConfig.lineType
+                                                                                        }
                                                                                         dataKey="value"
                                                                                         stroke="#0ea5e9"
-                                                                                        strokeWidth={1.5}
+                                                                                        strokeWidth={1}
                                                                                         dot={false}
                                                                                         connectNulls
                                                                                         isAnimationActive={false}
