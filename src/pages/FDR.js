@@ -10,7 +10,6 @@ import {
     Tooltip,
     Line,
     Bar,
-    LineChart,
 } from "recharts";
 import { fetchCaseByNumber } from "../api/cases";
 import { runFdrAnomalyDetection } from "../api/anomaly";
@@ -18,7 +17,7 @@ import useRecentCases from "../hooks/useRecentCases";
 import { buildCasePreview } from "../utils/caseDisplay";
 import { evaluateModuleReadiness } from "../utils/analysisAvailability";
 import { fetchAttachmentFromObjectStore } from "../utils/storage";
-import fdrParameterConfig, { fdrParameterMap } from "../config/fdr-parameters";
+import { fdrParameterMap } from "../config/fdr-parameters";
 
 const defaultCaseOptions = [
     {
@@ -65,70 +64,88 @@ const colorPalette = [
     "#f472b6",
 ];
 
-const parameterMetadata = fdrParameterMap.reduce((acc, entry, index) => {
-    acc[entry.id] = {
-        ...entry,
-        color: colorPalette[index % colorPalette.length],
-    };
-    return acc;
-}, {});
+const normalizeHeader = (value = "") => String(value || "").trim().toLowerCase();
 
-const parameterGroups = fdrParameterConfig.map((category) => ({
-    category: category.name,
-    key: category.key,
-    parameters: category.params.map((param) => param.id),
+const knownParameterMetadata = fdrParameterMap.map((entry) => ({
+    ...entry,
+    normalizedId: normalizeHeader(entry.id),
+    normalizedLabel: normalizeHeader(entry.label),
 }));
 
-const defaultSelectedParameters = [
-    "GPS Altitude (feet)",
-    "Indicated Airspeed (knots)",
-    "RPM L",
-].filter((key) => parameterMetadata[key]);
+const timeColumnExclusions = new Set([
+    "session time",
+    "system time",
+    "gps date & time",
+]);
 
-const parameterKeys = Object.keys(parameterMetadata);
-const getParameterLabel = (key) => parameterMetadata[key]?.label || key;
-const formatParameterList = (keys = []) =>
-    keys
-        .map((key) => getParameterLabel(key))
-        .filter(Boolean)
-        .join(", ");
-
-const dashboardCards = [
+const parameterGroupDefinitions = [
     {
         key: "engines-fuel",
         title: "Engines & Fuel",
-        parameters: ["RPM L", "RPM R", "Fuel Flow 1 (gal/hr)"],
+        keywords: [
+            "rpm",
+            "manifold pressure",
+            "fuel flow",
+            "fuel pressure",
+            "fuel level",
+            "percent power",
+            "egt",
+            "cht",
+            "thermocouple",
+        ],
     },
     {
-        key: "flight-dynamics",
-        title: "Flight Dynamics",
-        parameters: [
-            "GPS Altitude (feet)",
-            "Pressure Altitude (ft)",
-            "Indicated Airspeed (knots)",
-            "Ground Speed (knots)",
-            "True Airspeed (knots)",
-            "Vertical Speed (ft/min)",
-            "Pitch (deg)",
-            "Roll (deg)",
-            "Magnetic Heading (deg)",
+        key: "flight-dynamics-energy",
+        title: "Flight Dynamics – Energy / Kinematics",
+        keywords: [
+            "indicated airspeed",
+            "true airspeed",
+            "ground speed",
+            "vertical speed",
+            "pressure altitude",
+            "gps altitude",
+            "density altitude",
+            "angle of attack",
+            "acceleration",
         ],
+    },
+    {
+        key: "flight-dynamics-attitude",
+        title: "Flight Dynamics – Attitude",
+        keywords: ["pitch", "roll", "turn rate", "magnetic heading"],
     },
     {
         key: "navigation",
         title: "Navigation",
-        parameters: ["Latitude (deg)", "Longitude (deg)"],
+        keywords: [
+            "latitude",
+            "longitude",
+            "ground track",
+            "cross track error",
+            "bearing",
+            "range to destination",
+        ],
     },
     {
         key: "environment",
         title: "Environment",
-        parameters: ["OAT (deg C)"],
+        keywords: ["oat", "wind speed", "wind direction", "barometer setting"],
+    },
+    {
+        key: "autopilot-systems",
+        title: "Autopilot/Systems",
+        prefixes: ["ap", "cdi", "transponder"],
+    },
+    {
+        key: "other",
+        title: "Other / GP Inputs",
+        keywords: ["gp input"],
+        fallback: true,
     },
 ];
 
-const flightDynamicsParameterSet = new Set(
-    dashboardCards.find((card) => card.key === "flight-dynamics")?.parameters || []
-);
+const defaultVisibleChartsPerGroup = 8;
+const maxChartPoints = 400;
 
 const sampleNormalizedRows = [
     {
@@ -255,15 +272,12 @@ const algorithmDisplayNames = {
     isolation_forest: "Isolation Forest",
 };
 
-const normalizeHeader = (value = "") => String(value || "").trim().toLowerCase();
-
-
 const toNumber = (value) => {
     if (value === undefined || value === null) {
         return null;
     }
 
- const trimmedValue = typeof value === "string" ? value.trim() : value;
+    const trimmedValue = typeof value === "string" ? value.trim() : value;
     if (trimmedValue === "") {
         return null;
     }
@@ -272,49 +286,38 @@ const toNumber = (value) => {
     return Number.isFinite(numeric) ? numeric : null;
 };
 
-const pickNumeric = (row, columnNames = []) => {
-    for (const column of columnNames) {
-        const value = toNumber(row[column]);
-        if (value !== null) {
-            return value;
-        }
+const getKnownParameterMatch = (header = "") => {
+    const normalized = normalizeHeader(header);
+    return (
+        knownParameterMetadata.find(
+            (entry) =>
+                normalized === entry.normalizedId ||
+                normalized === entry.normalizedLabel ||
+                normalized.includes(entry.normalizedId)
+        ) || null
+    );
+};
+
+const parseParameterHeader = (header = "") => {
+    const match = String(header).match(/\(([^)]+)\)\s*$/);
+    const unit = match ? match[1].trim() : "";
+    const label = match ? header.replace(match[0], "").trim() : header.trim();
+    return { label, unit };
+};
+
+const getParameterDisplayMeta = (header = "") => {
+    const known = getKnownParameterMatch(header);
+    if (known) {
+        return { label: known.label || header, unit: known.unit || "" };
     }
 
-    return null;
+    return parseParameterHeader(header);
 };
 
-const buildParameterColumnMap = (headers = []) => {
-    const normalizedHeaders = headers.map((header) => ({
-        raw: header,
-        normalized: normalizeHeader(header),
-    }));
-    
-    const matches = {};
+const getParameterLabel = (header) => getParameterDisplayMeta(header).label || header;
 
-    fdrParameterMap.forEach(({ id, label }) => {
-        const normalizedId = normalizeHeader(id);
-        const normalizedLabel = normalizeHeader(label);
-        const exactMatch = normalizedHeaders.find(
-            (header) => header.normalized === normalizedId
-        );
-        const labelMatch = normalizedHeaders.find(
-            (header) => header.normalized === normalizedLabel
-        );
-        const partialMatch = normalizedHeaders.find((header) =>
-            header.normalized.includes(normalizedId)
-        );
-
-        const match = exactMatch || labelMatch || partialMatch;
-        matches[id] = match ? [match.raw] : [id];
-    });
-
-    console.debug("[FDR] Parameter column matches", {
-        headers,
-        matches,
-    });
-
-    return matches;
-};
+const isExcludedTimeColumn = (header = "") =>
+    timeColumnExclusions.has(normalizeHeader(header));
 
 const splitCsvLine = (line = "") => {
     const cells = [];
@@ -389,7 +392,7 @@ const resolveTimeLabel = (row, index) => {
         return systemTime;
     }
 
-    const sessionSeconds = pickNumeric(row, ["Session Time"]);
+    const sessionSeconds = toNumber(row["Session Time"]);
     if (sessionSeconds !== null) {
         return formatSessionTime(sessionSeconds);
     }
@@ -399,71 +402,61 @@ const resolveTimeLabel = (row, index) => {
 
 const normalizeFdrRows = (csvText) => {
     const { headers, rows: rawRows } = parseCsvRows(csvText);
-    const columnMap = buildParameterColumnMap(headers);
+    const numericHeaders = headers.filter(
+        (header) =>
+            !isExcludedTimeColumn(header) &&
+            rawRows.some((row) => toNumber(row[header]) !== null)
+    );
 
-    return rawRows.map((row, index) => {
+    const rows = rawRows.map((row, index) => {
         const normalized = { time: resolveTimeLabel(row, index) };
 
-        fdrParameterMap.forEach(({ id }) => {
-            const columnsToTry = columnMap[id]?.length ? columnMap[id] : [id];
-            const value = pickNumeric(row, columnsToTry);
+        numericHeaders.forEach((header) => {
+            const value = toNumber(row[header]);
             if (value !== null) {
-                normalized[id] = value;
+                normalized[header] = value;
             }
         });
 
         return normalized;
     });
+
+    return { rows, numericHeaders };
 };
 
 const hasNumericValue = (row, keys) =>
     keys.some((key) => typeof row[key] === "number" && !Number.isNaN(row[key]));
 
-const truncateSeries = (series, maxPoints = 500) =>
+const truncateSeries = (series, maxPoints = maxChartPoints) =>
     series.length > maxPoints ? series.slice(0, maxPoints) : series;
 
-const buildCardSamplesFromRows = (rows) => {
-    const groupedSamples = {};
-
-    dashboardCards.forEach(({ key, parameters }) => {
-        const samples = truncateSeries(
-            rows
-                .map((row) => {
-                    const entry = { time: row.time };
-                    parameters.forEach((parameter) => {
-                        if (row[parameter] !== undefined) {
-                            entry[parameter] = row[parameter];
-                        }
-                    });
-                    return entry;
-                })
-                .filter((row) => row.time && hasNumericValue(row, parameters)),
-            400
-        );
-
-        groupedSamples[key] = samples;
-    });
-
-    return groupedSamples;
-};
-
-const deriveAvailableParameters = (rows) => {
+const deriveAvailableParameters = (rows, orderedHeaders = []) => {
     const available = new Set();
 
-    parameterKeys.forEach((key) => {
-        if (rows.some((row) => hasNumericValue(row, [key]))) {
-            available.add(key);
+    orderedHeaders.forEach((header) => {
+        if (rows.some((row) => hasNumericValue(row, [header]))) {
+            available.add(header);
         }
     });
 
-    return available;
+    if (available.size === 0) {
+        rows.forEach((row) => {
+            Object.entries(row).forEach(([key, value]) => {
+                if (key !== "time" && typeof value === "number" && !Number.isNaN(value)) {
+                    available.add(key);
+                }
+            });
+        });
+    }
+
+    return Array.from(available);
 };
 
-const buildParameterTable = (rows) =>
-    fdrParameterMap
-        .map((definition) => {
+const buildParameterTable = (rows, parameters) =>
+    parameters
+        .map((parameter) => {
             const values = rows
-                .map((row) => row[definition.id])
+                .map((row) => row[parameter])
                 .filter((value) => typeof value === "number" && !Number.isNaN(value));
 
             if (values.length === 0) {
@@ -472,10 +465,11 @@ const buildParameterTable = (rows) =>
 
             const min = Math.min(...values);
             const max = Math.max(...values);
+            const { label, unit } = getParameterDisplayMeta(parameter);
 
             return {
-                parameter: definition.label,
-                unit: definition.unit,
+                parameter: label || parameter,
+                unit: unit || "",
                 min: Number(min.toFixed(1)),
                 max: Number(max.toFixed(1)),
             };
@@ -535,23 +529,26 @@ const getSeriesRenderConfig = (data = [], key) => {
     return { variant: "line", lineType: "monotone" };
 };
 
-const defaultCardSamples = buildCardSamplesFromRows(sampleNormalizedRows);
-const defaultAvailableParameters = Array.from(
-    deriveAvailableParameters(sampleNormalizedRows)
+const sampleParameterHeaders = Object.keys(sampleNormalizedRows[0] || {}).filter(
+    (key) => key !== "time"
 );
-const defaultParameterTableRows = buildParameterTable(sampleNormalizedRows);
+const defaultAvailableParameters = deriveAvailableParameters(
+    sampleNormalizedRows,
+    sampleParameterHeaders
+);
+const defaultParameterTableRows = buildParameterTable(
+    sampleNormalizedRows,
+    defaultAvailableParameters
+);
 const defaultDetectionTrendSamples = buildDetectionTrendSeries(sampleNormalizedRows);
 
 export default function FDR({ caseNumber: propCaseNumber }) {
     const { caseNumber: routeCaseNumber } = useParams();
     const caseNumber = propCaseNumber || routeCaseNumber;
     const navigate = useNavigate();
-    const [selectedParameters, setSelectedParameters] =
-        useState(defaultSelectedParameters);
     const [selectedAlgorithm, setSelectedAlgorithm] = useState("zscore");
     const [selectedCase, setSelectedCase] = useState(null);
     const [isRunningDetection, setIsRunningDetection] = useState(false);
-    const [cardSamples, setCardSamples] = useState(defaultCardSamples);
     const [detectionTrendData, setDetectionTrendData] = useState(
         defaultDetectionTrendSamples
     );
@@ -562,9 +559,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         defaultAvailableParameters
     );
     const [normalizedRows, setNormalizedRows] = useState(sampleNormalizedRows);
-    const [visibleFlightDynamics, setVisibleFlightDynamics] = useState(
-        () => new Set(flightDynamicsParameterSet)
-    );
+    const [chartFilterText, setChartFilterText] = useState("");
+    const [expandedGroups, setExpandedGroups] = useState(() => new Set());
     const [anomalyResult, setAnomalyResult] = useState(null);
     const [anomalyError, setAnomalyError] = useState("");
     const [isLoadingFdrData, setIsLoadingFdrData] = useState(false);
@@ -577,10 +573,77 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         availableParameters.length > 0
             ? "All numeric parameters"
             : "No numeric parameters were detected in the uploaded file.";
-    const availableParameterSet = useMemo(
-        () => new Set(availableParameters || []),
-        [availableParameters]
-    );
+    const parameterDisplayMap = useMemo(() => {
+        const map = {};
+        (availableParameters || []).forEach((parameter, index) => {
+            const display = getParameterDisplayMeta(parameter);
+            map[parameter] = {
+                ...display,
+                label: display.label || parameter,
+                color: colorPalette[index % colorPalette.length],
+            };
+        });
+        return map;
+    }, [availableParameters]);
+    const filteredParameters = useMemo(() => {
+        const filter = chartFilterText.trim().toLowerCase();
+        if (!filter) {
+            return availableParameters;
+        }
+
+        return (availableParameters || []).filter((parameter) => {
+            const meta = parameterDisplayMap[parameter];
+            const label = meta?.label || parameter;
+            return (
+                label.toLowerCase().includes(filter) ||
+                parameter.toLowerCase().includes(filter)
+            );
+        });
+    }, [availableParameters, chartFilterText, parameterDisplayMap]);
+    const groupedParameters = useMemo(() => {
+        const groups = parameterGroupDefinitions.map((definition) => ({
+            ...definition,
+            parameters: [],
+        }));
+        const fallbackGroup = groups.find((group) => group.fallback);
+
+        const matchGroup = (parameter) => {
+            const meta = parameterDisplayMap[parameter];
+            const label = meta?.label || parameter;
+            const normalized = normalizeHeader(`${label} ${parameter}`);
+
+            return (
+                groups.find((group) => {
+                    if (group.keywords?.length) {
+                        return group.keywords.some((keyword) =>
+                            normalized.includes(normalizeHeader(keyword))
+                        );
+                    }
+
+                    if (group.prefixes?.length) {
+                        return group.prefixes.some((prefix) => {
+                            const normalizedPrefix = normalizeHeader(prefix);
+                            return (
+                                normalizeHeader(parameter).startsWith(normalizedPrefix) ||
+                                normalizeHeader(label).startsWith(normalizedPrefix)
+                            );
+                        });
+                    }
+
+                    return false;
+                }) || fallbackGroup
+            );
+        };
+
+        filteredParameters.forEach((parameter) => {
+            const group = matchGroup(parameter);
+            if (group) {
+                group.parameters.push(parameter);
+            }
+        });
+
+        return groups.filter((group) => group.parameters.length > 0);
+    }, [filteredParameters, parameterDisplayMap]);
     const sampleRows = useMemo(() => {
         if (!anomalyResult) {
             return [];
@@ -730,7 +793,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         const caseData = selectedCase?.source;
 
         if (!caseData) {
-            setCardSamples(defaultCardSamples);
             setDetectionTrendData(defaultDetectionTrendSamples);
             setParameterTableRows(defaultParameterTableRows);
             setAvailableParameters(defaultAvailableParameters);
@@ -758,7 +820,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         });
 
         if (!fdrAttachment) {
-            setCardSamples(defaultCardSamples);
             setDetectionTrendData(defaultDetectionTrendSamples);
             setParameterTableRows(defaultParameterTableRows);
             setAvailableParameters([]);
@@ -784,28 +845,17 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     return;
                 }
 
-                const rows = normalizeFdrRows(text);
+                const { rows, numericHeaders } = normalizeFdrRows(text);
                 if (rows.length === 0) {
                     throw new Error(
                         "The FDR file was downloaded but contained no readable rows."
                     );
                 }
 
-                const derivedSamples = buildCardSamplesFromRows(rows);
-                const availability = deriveAvailableParameters(rows);
-                const parameterTable = buildParameterTable(rows);
+                const availability = deriveAvailableParameters(rows, numericHeaders);
+                const parameterTable = buildParameterTable(rows, availability);
                 const trends = buildDetectionTrendSeries(rows);
                 setNormalizedRows(rows);
-
-                const blendedSamples = dashboardCards.reduce((acc, card) => {
-                    const derived = derivedSamples[card.key] || [];
-                    acc[card.key] = derived.length
-                        ? derived
-                        : defaultCardSamples[card.key] || [];
-                    return acc;
-                }, {});
-
-                setCardSamples(blendedSamples);
 
                 setDetectionTrendData(
                     trends.length > 0 ? trends : defaultDetectionTrendSamples
@@ -818,8 +868,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 );
 
                 setAvailableParameters(
-                    availability.size > 0
-                        ? Array.from(availability)
+                    availability.length > 0
+                        ? availability
                         : defaultAvailableParameters
                 );
                 setFdrDataError("");
@@ -829,7 +879,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     return;
                 }
 
-            setCardSamples(defaultCardSamples);
                 setDetectionTrendData(defaultDetectionTrendSamples);
                 setParameterTableRows(defaultParameterTableRows);
                 setAvailableParameters([]);
@@ -849,22 +898,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         return () => controller.abort();
     }, [selectedCase]);
-
-    useEffect(() => {
-        if (!Array.isArray(availableParameters) || availableParameters.length === 0) {
-            setSelectedParameters([]);
-            return;
-        }
-
-        setSelectedParameters((prev) => {
-            const filtered = prev.filter((item) => availableParameters.includes(item));
-            if (filtered.length > 0) {
-                return filtered;
-            }
-
-            return availableParameters.slice(0, Math.min(3, availableParameters.length));
-        });
-    }, [availableParameters]);
 
     const handleNavigateToCases = () => {
         navigate("/cases");
@@ -907,32 +940,16 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         setMissingDataTypes([]);
     };
 
-    const handleToggleFlightDynamics = (parameter) => {
-        if (!flightDynamicsParameterSet.has(parameter)) {
-            return;
-        }
-
-        setVisibleFlightDynamics((prev) => {
+    const handleToggleGroup = (groupKey) => {
+        setExpandedGroups((prev) => {
             const next = new Set(prev);
-            if (next.has(parameter)) {
-                next.delete(parameter);
+            if (next.has(groupKey)) {
+                next.delete(groupKey);
             } else {
-                next.add(parameter);
+                next.add(groupKey);
             }
             return next;
         });
-    };
-
-    const toggleParameter = (parameter) => {
-        if (!availableParameters.includes(parameter)) {
-            return;
-        }
-
-        setSelectedParameters((prev) =>
-            prev.includes(parameter)
-                ? prev.filter((item) => item !== parameter)
-                : [...prev, parameter]
-        );
     };
 
     const handleRunDetection = async () => {
@@ -1067,7 +1084,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             return String(row ?? "");
         }
 
-         const base =
+        const base =
             (row?.values && typeof row.values === "object" && row.values) ||
             (row?.metrics && typeof row.metrics === "object" && row.metrics) ||
             (row?.parameters &&
@@ -1091,8 +1108,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             .map(([key, value]) => `${key}: ${value}`)
             .join(" · ");
     };
-
-
     const anomalyTableRows = useMemo(
         () =>
             sampleRows.slice(0, 10).map((row, index) => {
@@ -1132,237 +1147,86 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         [sampleRows]
     );
 
-        const renderDashboardCards = () =>
-        dashboardCards.map((card) => {
-            const selectedForCard = selectedParameters.filter((parameter) =>
-                card.parameters.includes(parameter)
-            );
-            const visibleParameters = (
-                card.key === "flight-dynamics"
-                    ? selectedForCard.filter((parameter) =>
-                          visibleFlightDynamics.has(parameter)
-                      )
-                    : selectedForCard
-            ).filter((parameter) => availableParameterSet.has(parameter));
-            const chartData = (cardSamples[card.key] || [])
-                .map((row) => {
-                    const entry = { time: row.time };
-                    visibleParameters.forEach((parameter) => {
-                        if (typeof row[parameter] === "number" && !Number.isNaN(row[parameter])) {
-                            entry[parameter] = row[parameter];
-                        }
-                    });
-                    return entry;
-                })
-                .filter((row) => row.time && hasNumericValue(row, visibleParameters));
-            const hasData = chartData.length > 0 && visibleParameters.length > 0;
-            const showNoMatch =
-                selectedForCard.length > 0 &&
-                (visibleParameters.length === 0 || chartData.length === 0);
-            const hasMultiScaleData = visibleParameters.some((parameter) =>
-                summarizeSeriesProfile(chartData, parameter).isMultiScale
-            );
-             const badgeParameters = visibleParameters;
+    const renderParameterCard = (parameter) => {
+        const meta = parameterDisplayMap[parameter] || {
+            label: parameter,
+            unit: "",
+            color: colorPalette[0],
+        };
+        const chartData = truncateSeries(
+            normalizedRows
+                .map((row) => ({
+                    time: row.time,
+                    value: row[parameter],
+                }))
+                .filter(
+                    (row) =>
+                        row.time &&
+                        typeof row.value === "number" &&
+                        !Number.isNaN(row.value)
+                )
+        );
+        const hasData = chartData.length > 0;
+        const renderConfig = getSeriesRenderConfig(chartData, "value");
 
-            const scatterData =
-                card.key === "navigation"
-                    ? (cardSamples[card.key] || [])
-                          .map((row) => ({
-                              latitude: Number(row["Latitude (deg)"]),
-                              longitude: Number(row["Longitude (deg)"]),
-                          }))
-                          .filter(
-                              (point) =>
-                                  Number.isFinite(point.latitude) &&
-                                  Number.isFinite(point.longitude)
-                          )
-                    : [];
-            const canShowScatter =
-                card.key === "navigation" &&
-                scatterData.length > 0 &&
-                ["Latitude (deg)", "Longitude (deg)"].every((parameter) =>
-                    visibleParameters.includes(parameter)
-                );
+        return (
+            <div
+                key={parameter}
+                className="flex w-full flex-col gap-3 rounded-2xl border border-gray-200 bg-white/70 p-4 shadow-sm"
+            >
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <h3 className="text-sm font-semibold text-gray-800">
+                            {meta.label || parameter}
+                        </h3>
+                        {meta.unit && (
+                            <p className="text-xs text-gray-500">Unit: {meta.unit}</p>
+                        )}
+                    </div>
+                </div>
 
-            const renderTimeSeries = () => (
-                <div className="min-h-[260px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart
-                            data={chartData}
-                            margin={{ top: 12, right: 24, left: 0, bottom: 0 }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                            <XAxis dataKey="time" stroke="#94a3b8" minTickGap={20} />
-                            <YAxis
-                                stroke="#94a3b8"
-                                allowDataOverflow={hasMultiScaleData}
-                                domain={["auto", "auto"]}
-                                padding={hasMultiScaleData ? { top: 12, bottom: 12 } : { top: 8, bottom: 8 }}
-                            />
-                            <Tooltip cursor={{ stroke: "#cbd5e1" }} />
-                            {visibleParameters.map((parameter) => {
-                                const config = parameterMetadata[parameter];
-                                const stroke = config?.color ?? "#0f172a";
-                                const label = config?.label || parameter;
-                                const renderConfig = getSeriesRenderConfig(
-                                    chartData,
-                                    parameter
-                                );
-
-                                if (renderConfig.variant === "bar") {
-                                    return (
-                                        <Bar
-                                            key={parameter}
-                                            dataKey={parameter}
-                                            name={label}
-                                            fill={stroke}
-                                            barSize={18}
-                                            isAnimationActive={false}
-                                        />
-                                    );
-                                }
-
-                                return (
+                {hasData ? (
+                    <div className="min-h-[200px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <ComposedChart
+                                data={chartData}
+                                margin={{ top: 12, right: 16, left: 0, bottom: 0 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                <XAxis dataKey="time" stroke="#94a3b8" minTickGap={20} />
+                                <YAxis stroke="#94a3b8" domain={["auto", "auto"]} />
+                                <Tooltip cursor={{ stroke: "#cbd5e1" }} />
+                                {renderConfig.variant === "bar" ? (
+                                    <Bar
+                                        dataKey="value"
+                                        name={meta.label || parameter}
+                                        fill={meta.color}
+                                        barSize={18}
+                                        isAnimationActive={false}
+                                    />
+                                ) : (
                                     <Line
-                                        key={parameter}
                                         type={renderConfig.lineType || "monotone"}
-                                        dataKey={parameter}
-                                        name={label}
-                                        stroke={stroke}
+                                        dataKey="value"
+                                        name={meta.label || parameter}
+                                        stroke={meta.color}
                                         strokeWidth={2}
                                         dot={false}
                                         connectNulls
                                         isAnimationActive={false}
                                     />
-                                );
-                            })}
-                        </ComposedChart>
-                    </ResponsiveContainer>
-                </div>
-            );
-
-            const emptyMessage = showNoMatch
-                ? "No matching numeric column found for this selection."
-                : "Select parameters from the left to visualize this card.";
-
-            return (
-                <div
-                    key={card.key}
-                    className="flex w-full flex-col gap-3 rounded-2xl border border-gray-200 bg-white/70 p-4 shadow-sm"
-                >
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h3 className="text-sm font-semibold text-gray-800">{card.title}</h3>
-                            <p className="text-xs text-gray-500">
-                                {card.key === "flight-dynamics"
-                                    ? "Energy, kinematics, and attitude traces."
-                                    : card.key === "navigation"
-                                      ? "Track geospatial progress alongside a longitude/latitude trace."
-                                      : card.key === "engines-fuel"
-                                        ? "Engine RPM with fuel flow rate overlays."
-                                        : "Environmental readings captured by the recorder."}
-                            </p>
-                        </div>
-                        <span className="text-xs font-medium text-gray-400">
-                            {visibleParameters.length}/{card.parameters.length} displayed
-                        </span>
+                                )}
+                            </ComposedChart>
+                        </ResponsiveContainer>
                     </div>
-                 {card.key === "flight-dynamics" && selectedForCard.length > 0 && (
-                        <div className="flex flex-wrap gap-2 rounded-lg bg-gray-50 p-2">
-                            {card.parameters
-                                .filter((parameter) => selectedForCard.includes(parameter))
-                                .map((parameter) => {
-                                    const isVisible = visibleFlightDynamics.has(parameter);
-                                    const label = getParameterLabel(parameter);
-                                    const disabled = !availableParameterSet.has(parameter);
-                                    return (
-                                        <label
-                                            key={parameter}
-                                            className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm"
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                                                checked={isVisible}
-                                                disabled={disabled}
-                                                onChange={() => handleToggleFlightDynamics(parameter)}
-                                            />
-                                            <span className={disabled ? "text-gray-400" : ""}>{label}</span>
-                                        </label>
-                                    );
-                                })}
-                        </div>
-                    )}
-
-
-                    {hasData ? (
-                        <>
-                            <div className="flex flex-wrap gap-2">
-                                {badgeParameters.map((parameter) => {
-                                    const config = parameterMetadata[parameter];
-                                    const badgeColor = config?.color ?? "#0f172a";
-                                    const badgeBackground = config?.color
-                                        ? `${config.color}1a`
-                                        : "#e2e8f0";
-                                    const label = config?.label || parameter;
-
-                                    return (
-                                        <span
-                                            key={parameter}
-                                            className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
-                                            style={{
-                                                backgroundColor: badgeBackground,
-                                                color: badgeColor,
-                                            }}
-                                        >
-                                            {label}
-                                        </span>
-                                    );
-                                })}
-                            </div>
-
- {renderTimeSeries()}
-
-                            {canShowScatter && (
-                                <div className="min-h-[220px]">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart data={scatterData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                            <XAxis
-                                                dataKey="longitude"
-                                                type="number"
-                                                stroke="#94a3b8"
-                                                label={{ value: "Longitude", position: "insideBottom", offset: -4, fill: "#64748b" }}
-                                            />
-                                            <YAxis
-                                                dataKey="latitude"
-                                                type="number"
-                                                stroke="#94a3b8"
-                                                label={{ value: "Latitude", angle: -90, position: "insideLeft", fill: "#64748b" }}
-                                            />
-                                            <Tooltip cursor={{ stroke: "#cbd5e1" }} />
-                                            <Line
-                                                type="monotone"
-                                                dataKey="latitude"
-                                                stroke={parameterMetadata["Latitude (deg)"]?.color || "#0f172a"}
-                                                strokeWidth={2}
-                                                dot={{ r: 2 }}
-                                                isAnimationActive={false}
-                                                name="Position"
-                                            />
-                                        </LineChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            )}
-                        </>
-                    ) : (
-                        <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-center text-sm text-gray-500">
-                           {emptyMessage}
-                        </div>
-                    )}
-                </div>
-            );
-        });
+                ) : (
+                    <div className="flex min-h-[200px] items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-center text-sm text-gray-500">
+                        No numeric data available for this parameter.
+                    </div>
+                )}
+            </div>
+        );
+    };
 
     if (!isLinkedRoute && workflowStage === "caseSelection") {
         return (
@@ -1464,7 +1328,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         onClick={() => selectedCase && setWorkflowStage("analysis")}
                         className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-emerald-200"
                     >
-                        Continue to parameter selection
+                        Continue to analysis
                     </button>
                 </div>
         </div>
@@ -1886,234 +1750,219 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-6">
-                <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
-                    <div>
-                        <h2 className="text-lg font-semibold text-gray-900">
-                            Visualization Parameters
-                        </h2>
-                        <p className="text-sm text-gray-500">
-                            Choose the flight data parameters to visualize in charts.
-                        </p>
-                    </div>
+            <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-5">
+                <div className="space-y-1">
+                    <h2 className="text-lg font-semibold text-gray-900">Anomaly Detection</h2>
+                </div>
 
-                    <div className="bg-gray-50 border border-dashed border-gray-200 rounded-lg p-4">
-                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                            Visualization parameters selected
-                        </p>
-                        <p className="text-sm font-medium text-gray-800">
-                            {selectedParameters.length > 0
-                                ? formatParameterList(selectedParameters)
-                                : "No parameters selected"}
-                        </p>
-                    </div>
+                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Current scope</p>
+                    <p className="font-semibold text-gray-800">{detectionScopeLabel}</p>
+                </div>
 
-                    <div className="space-y-5">
-                        {parameterGroups.map(({ category, parameters }) => (
-                            <div key={category} className="space-y-2">
-                                <p className="text-sm font-semibold text-gray-700">{category}</p>
-                                <div className="space-y-2">
-                                    {parameters.map((parameter) => {
-                                        const isAvailable = availableParameterSet.has(parameter);
-                                        const label = getParameterLabel(parameter);
-                                        return (
-                                            <label
-                                                key={parameter}
-                                                className="flex items-center gap-3 text-sm text-gray-600"
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                                                    checked={selectedParameters.includes(parameter)}
-                                                    disabled={!isAvailable}
-                                                    onChange={() => toggleParameter(parameter)}
-                                                />
-                                                <span
-                                                    className={
-                                                        isAvailable ? "" : "text-gray-400"
-                                                    }
-                                                >
-                                                    {label}
-                                                    {!isAvailable && " (not in file)"}
-                                                </span>
-                                            </label>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </section>
+                <div className="space-y-1">
+                    <label className="text-sm font-semibold text-gray-800" htmlFor="algorithm-select">
+                        Algorithm
+                    </label>
+                    <select
+                        id="algorithm-select"
+                        value={selectedAlgorithm}
+                        onChange={(event) => setSelectedAlgorithm(event.target.value)}
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                    >
+                        <option value="zscore">Z-score (default)</option>
+                        <option value="iqr">IQR</option>
+                        <option value="isolation_forest">Isolation Forest (beta)</option>
+                    </select>
+                </div>
 
-                <div className="space-y-6">
-                    <section className="bg-white border border-gray-200 rounded-xl p-6">
-                        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                {anomalyError && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        {anomalyError}
+                    </div>
+                )}
+
+                {(isRunningDetection || anomalyResult || anomalyError) && (
+                    <div className="rounded-lg border border-gray-200 bg-white/60 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
                             <div>
-                                <h2 className="text-lg font-semibold text-gray-900">
-                                    Flight Parameter Overview
-                                </h2>
-                                <p className="text-sm text-gray-500">
-                                    Time series visualization of recorder values for the selected
-                                    parameters.
+                                <p className="text-sm font-semibold text-gray-800">Detection Summary</p>
+                                <p className="text-xs text-gray-500">
+                                    Latest run for {selectedCase?.id || caseNumber || "current case"}
                                 </p>
                             </div>
-                            <p className="text-xs text-gray-500">
-                                Charts resize with available space for clearer trend comparisons.
-                            </p>
+                            {isRunningDetection && (
+                                <span className="text-xs font-semibold text-emerald-700">Running...</span>
+                            )}
                         </div>
 
-                        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                            {renderDashboardCards()}
-                        </div>
-                    </section>
+                        {anomalyResult && (
+                            <>
+                                <p className="text-sm text-gray-700">
+                                    <span className="text-2xl font-bold text-emerald-600">
+                                        {typeof anomalyCount === "number"
+                                            ? anomalyCount.toLocaleString()
+                                            : "—"}
+                                    </span>
+                                    <span className="ml-2 text-xs uppercase tracking-wide text-gray-500">
+                                        anomalies detected
+                                    </span>
+                                </p>
 
-                    <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-5">
-                        <div className="space-y-1">
-                            <h2 className="text-lg font-semibold text-gray-900">Anomaly Detection</h2>
-                        </div>
+                                <p className="text-xs text-gray-500">
+                                    <span className="font-semibold text-gray-800">Algorithm:</span>
+                                    <span className="ml-1">{algorithmUsed || "Unknown"}</span>
+                                    <span className="ml-3 font-semibold text-gray-800">Total rows:</span>
+                                    <span className="ml-1 text-gray-700">
+                                        {typeof totalRows === "number" ? totalRows.toLocaleString() : "—"}
+                                    </span>
+                                </p>
 
-                        <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
-                            <p className="text-xs uppercase tracking-wide text-gray-500">Current scope</p>
-                            <p className="font-semibold text-gray-800">
-                                {detectionScopeLabel}
-                            </p>
-                        </div>
+                                {topAnomalyParameters.length > 0 && (
+                                    <div className="space-y-1 mt-2">
+                                        <p className="text-xs font-semibold text-gray-700">
+                                            Parameters with most anomalies
+                                        </p>
+                                        <ul className="text-sm text-gray-700 space-y-1">
+                                            {topAnomalyParameters.map(({ name, count }) => (
+                                                <li
+                                                    key={`${name}-${count}`}
+                                                    className="flex items-center justify-between"
+                                                >
+                                                    <span>{name}</span>
+                                                    <span className="text-xs text-gray-500">
+                                                        {count} {count === 1 ? "anomaly" : "anomalies"}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
 
-                        <div className="space-y-1">
-                            <label className="text-sm font-semibold text-gray-800" htmlFor="algorithm-select">
-                                Algorithm
-                            </label>
-                            <select
-                                id="algorithm-select"
-                                value={selectedAlgorithm}
-                                onChange={(event) => setSelectedAlgorithm(event.target.value)}
-                                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                            >
-                                <option value="zscore">Z-score (default)</option>
-                                <option value="iqr">IQR</option>
-                                <option value="isolation_forest">Isolation Forest (beta)</option>
-                            </select>
-                        </div>
+                                {noAnomaliesDetected && (
+                                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                                        No anomalies detected for the current run.
+                                    </div>
+                                )}
 
-                        {anomalyError && (
-                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                                {anomalyError}
-                            </div>
+                                {!noAnomaliesDetected && (
+                                    <div className="space-y-2">
+                                        <p className="text-xs font-semibold text-gray-700">Sample anomalous rows</p>
+                                        {sampleRows.length > 0 ? (
+                                            <ul className="space-y-2">
+                                                {sampleRows.slice(0, 5).map((row, index) => {
+                                                    const rowLabel =
+                                                        row?.rowIndex ||
+                                                        row?.row_number ||
+                                                        row?.index ||
+                                                        row?.row ||
+                                                        index + 1;
+                                                    const severity = row?.severity || row?.score;
+
+                                                    return (
+                                                        <li
+                                                            key={`${rowLabel}-${index}`}
+                                                            className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
+                                                        >
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="font-semibold text-gray-800">
+                                                                    Row {rowLabel}
+                                                                </span>
+                                                                {severity && (
+                                                                    <span className="text-xs rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
+                                                                        {severity}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs text-gray-600 break-words">
+                                                                {renderSampleValues(row)}
+                                                            </p>
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        ) : (
+                                            <p className="text-sm text-gray-500">
+                                                No sample anomalies returned for this run.
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </>
                         )}
+                    </div>
+                )}
+            </section>
 
-                        {(isRunningDetection || anomalyResult || anomalyError) && (
-                            <div className="rounded-lg border border-gray-200 bg-white/60 p-4 space-y-3">
+            <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-900">
+                            Flight Parameter Overview
+                        </h2>
+                        <p className="text-sm text-gray-500">
+                            Time series visualization of recorder values for each parameter.
+                        </p>
+                    </div>
+                    <div className="w-full sm:w-64">
+                        <label className="text-xs font-semibold text-gray-500" htmlFor="chart-filter">
+                            Filter charts by parameter name
+                        </label>
+                        <input
+                            id="chart-filter"
+                            type="text"
+                            value={chartFilterText}
+                            onChange={(event) => setChartFilterText(event.target.value)}
+                            placeholder="Search parameters..."
+                            className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+                        />
+                    </div>
+                </div>
+
+                {groupedParameters.length > 0 ? (
+                    groupedParameters.map((group) => {
+                        const isExpanded = expandedGroups.has(group.key);
+                        const visibleParameters = isExpanded
+                            ? group.parameters
+                            : group.parameters.slice(0, defaultVisibleChartsPerGroup);
+                        const canToggle = group.parameters.length > defaultVisibleChartsPerGroup;
+
+                        return (
+                            <div key={group.key} className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <p className="text-sm font-semibold text-gray-800">Detection Summary</p>
+                                        <h3 className="text-sm font-semibold text-gray-800">
+                                            {group.title}
+                                        </h3>
                                         <p className="text-xs text-gray-500">
-                                            Latest run for {selectedCase?.id || caseNumber || "current case"}
+                                            {group.parameters.length} parameters
                                         </p>
                                     </div>
-                                    {isRunningDetection && (
-                                        <span className="text-xs font-semibold text-emerald-700">Running...</span>
+                                    {canToggle && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleToggleGroup(group.key)}
+                                            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700"
+                                        >
+                                            {isExpanded ? "Show less" : "Show more"}
+                                        </button>
                                     )}
                                 </div>
 
-                                {anomalyResult && (
-                                    <>
-                                        <p className="text-sm text-gray-700">
-                                            <span className="text-2xl font-bold text-emerald-600">
-                                                {typeof anomalyCount === "number"
-                                                    ? anomalyCount.toLocaleString()
-                                                    : "—"}
-                                            </span>
-                                            <span className="ml-2 text-xs uppercase tracking-wide text-gray-500">
-                                                anomalies detected
-                                            </span>
-                                        </p>
-
-                                        <p className="text-xs text-gray-500">
-                                            <span className="font-semibold text-gray-800">Algorithm:</span>
-                                            <span className="ml-1">
-                                                {algorithmUsed || "Unknown"}
-                                            </span>
-                                            <span className="ml-3 font-semibold text-gray-800">Total rows:</span>
-                                            <span className="ml-1 text-gray-700">
-                                                {typeof totalRows === "number" ? totalRows.toLocaleString() : "—"}
-                                            </span>
-                                        </p>
-
-                                        {topAnomalyParameters.length > 0 && (
-                                            <div className="space-y-1 mt-2">
-                                                <p className="text-xs font-semibold text-gray-700">
-                                                    Parameters with most anomalies
-                                                </p>
-                                                <ul className="text-sm text-gray-700 space-y-1">
-                                                    {topAnomalyParameters.map(({ name, count }) => (
-                                                        <li
-                                                            key={`${name}-${count}`}
-                                                            className="flex items-center justify-between"
-                                                        >
-                                                            <span>{name}</span>
-                                                            <span className="text-xs text-gray-500">
-                                                                {count} {count === 1 ? "anomaly" : "anomalies"}
-                                                            </span>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
-
-                                        {noAnomaliesDetected && (
-                                            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                                                No anomalies detected for the current run.
-                                            </div>
-                                        )}
-
-                                        {!noAnomaliesDetected && (
-                                            <div className="space-y-2">
-                                                <p className="text-xs font-semibold text-gray-700">Sample anomalous rows</p>
-                                                {sampleRows.length > 0 ? (
-                                                    <ul className="space-y-2">
-                                                        {sampleRows.slice(0, 5).map((row, index) => {
-                                                            const rowLabel =
-                                                                row?.rowIndex ||
-                                                                row?.row_number ||
-                                                                row?.index ||
-                                                                row?.row ||
-                                                                index + 1;
-                                                            const severity = row?.severity || row?.score;
-
-                                                            return (
-                                                                <li
-                                                                    key={`${rowLabel}-${index}`}
-                                                                    className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
-                                                                >
-                                                                    <div className="flex items-center justify-between">
-                                                                        <span className="font-semibold text-gray-800">
-                                                                            Row {rowLabel}
-                                                                        </span>
-                                                                        {severity && (
-                                                                            <span className="text-xs rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
-                                                                                {severity}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                    <p className="text-xs text-gray-600 break-words">
-                                                                        {renderSampleValues(row)}
-                                                                    </p>
-                                                                </li>
-                                                            );
-                                                        })}
-                                                    </ul>
-                                                ) : (
-                                                    <p className="text-sm text-gray-500">No sample anomalies returned for this run.</p>
-                                                )}
-                                            </div>
-                                        )}
-                                    </>
-                                )}
+                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                    {visibleParameters.map((parameter) =>
+                                        renderParameterCard(parameter)
+                                    )}
+                                </div>
                             </div>
-                        )}
-                    </section>
-                </div>
-            </div>
+                        );
+                    })
+                ) : (
+                    <div className="flex min-h-[160px] items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-center text-sm text-gray-500">
+                        No parameters match your filter.
+                    </div>
+                )}
+            </section>
 
             <section className="bg-white border border-gray-200 rounded-xl p-6">
                 <div className="flex items-center justify-between mb-4">
