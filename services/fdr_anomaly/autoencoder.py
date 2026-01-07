@@ -443,6 +443,9 @@ def detect_anomalies(
         "top_parameters": top_parameters,
         "flaggedRowCount": flagged_row_count,
         "flaggedPercent": round(flagged_percent, 4),
+        "window_size": int(window_size),
+        "stride": int(stride),
+        "threshold_percentile": float(threshold_percentile),
     }
 
     timeline = TimelineData(
