@@ -31,51 +31,6 @@ const calculateStd = (values = []) => {
   return Math.sqrt(variance);
 };
 
-const percentile = (values = [], p = 0.5) => {
-  if (!values.length) return 0;
-
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = (sorted.length - 1) * p;
-  const lower = Math.floor(index);
-  const upper = Math.ceil(index);
-
-  if (lower === upper) {
-    return sorted[index];
-  }
-
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
-};
-
-const buildIsolationForestLike = (rows, parameters) => {
-  const scored = rows.map((row, index) => {
-    const numericValues = parameters
-      .map((param) => toNumeric(row[param]))
-      .filter((value) => value !== null);
-
-    if (!numericValues.length) {
-      return { index, score: 0 };
-    }
-
-    const mean = calculateMean(numericValues);
-    const std = calculateStd(numericValues) || 1;
-    const score =
-      numericValues.reduce(
-        (sum, value) => sum + Math.abs((value - mean) / std),
-        0,
-      ) / numericValues.length;
-
-    return { index, score };
-  });
-
-  const sorted = scored.sort((a, b) => b.score - a.score);
-  const targetCount = Math.min(
-    rows.length,
-    Math.max(1, Math.round(rows.length * 0.12)),
-  );
-
-  return sorted.slice(0, targetCount).map((entry) => entry.index);
-};
-
 const collectNumericParameters = (rows = []) => {
   const keys = new Set();
 
@@ -98,7 +53,7 @@ const collectNumericParameters = (rows = []) => {
   return Array.from(keys);
 };
 
-const detectAnomaliesLocally = (rows = [], _parameters = [], algorithm) => {
+const detectAnomaliesLocally = (rows = []) => {
   if (!rows.length) {
     return null;
   }
@@ -106,7 +61,6 @@ const detectAnomaliesLocally = (rows = [], _parameters = [], algorithm) => {
   const usedParameters = collectNumericParameters(rows);
 
   console.debug('[Anomaly] Executing local detection', {
-    algorithm: algorithm || 'zscore',
     parameterCount: usedParameters.length,
   });
 
@@ -122,37 +76,6 @@ const detectAnomaliesLocally = (rows = [], _parameters = [], algorithm) => {
 
     if (!values.length) {
       parameterCounts[parameter] = 0;
-      return;
-    }
-
-    if (algorithm === 'iqr') {
-      const q1 = percentile(values, 0.25);
-      const q3 = percentile(values, 0.75);
-      const iqr = q3 - q1 || 1;
-      const lower = q1 - 1.5 * iqr;
-      const upper = q3 + 1.5 * iqr;
-      let count = 0;
-
-      valueEntries.forEach(({ value, index }) => {
-        if (value < lower || value > upper) {
-          anomalyRows.add(index);
-          count += 1;
-          rowParameterHits[index] = rowParameterHits[index] || new Set();
-          rowParameterHits[index].add(parameter);
-        }
-      });
-      parameterCounts[parameter] = count;
-      return;
-    }
-
-    if (algorithm === 'isolation_forest') {
-      const indices = buildIsolationForestLike(rows, [parameter]);
-      indices.forEach((index) => {
-        anomalyRows.add(index);
-        rowParameterHits[index] = rowParameterHits[index] || new Set();
-        rowParameterHits[index].add(parameter);
-      });
-      parameterCounts[parameter] = indices.length;
       return;
     }
 
@@ -179,7 +102,6 @@ const detectAnomaliesLocally = (rows = [], _parameters = [], algorithm) => {
   );
 
   console.debug('[Anomaly] Local filter summary', {
-    algorithm: algorithm || 'zscore',
     rawAnomalyCount: rawHitCount,
     uniqueRowCount: anomalyRows.size,
   });
@@ -199,49 +121,45 @@ const detectAnomaliesLocally = (rows = [], _parameters = [], algorithm) => {
           (param) => row[param] !== undefined && toNumeric(row[param]) !== null,
         ),
       parameters: triggeredParameters,
-      severity: algorithm === 'isolation_forest' ? 'High' : 'Moderate',
+      severity: 'Moderate',
       values: row,
     };
   });
 
   return {
-    algorithm,
-    anomalies,
-    anomalyCount: anomalies.length,
-    rawAnomalyCount: rawHitCount,
-    anomalyPercentage:
-      rows.length > 0 ? (anomalies.length / rows.length) * 100 : null,
-    evaluatedRows: rows.length,
-    parameterCounts,
-    sampleRows: anomalies,
-    topParameters: Object.entries(parameterCounts).map(([parameter, count]) => ({
-      parameter,
-      count,
-    })),
     summary: {
+      n_rows: rows.length,
       n_params_used: usedParameters.length,
+      segments_found: anomalies.length,
       top_parameters: Object.entries(parameterCounts).map(([parameter, count]) => ({
         parameter,
         count,
       })),
     },
-    totalRows: rows.length,
+    segments: anomalies.map((entry) => ({
+      start_time: entry.time ?? entry.rowIndex,
+      end_time: entry.time ?? entry.rowIndex,
+      severity: 'low',
+      score_peak: 0,
+      top_drivers: (entry.parameters || []).slice(0, 5).map((parameter) => ({
+        parameter,
+        error: 0,
+      })),
+      explanation:
+        'Review recommended. Unusual behavior pattern compared to learned normal behavior for this flight.',
+    })),
+    timeline: {
+      time: rows.map((row, index) => row.time ?? index),
+      score: rows.map(() => 0),
+    },
   };
 };
 
-export const runFdrAnomalyDetection = async (
-  caseId,
-  { algorithm, rows = [] } = {},
-) => {
+export const runFdrAnomalyDetection = async (caseId, { rows = [] } = {}) => {
   const payload = {};
-
-  if (algorithm) {
-    payload.algorithm = algorithm;
-  }
 
   console.debug('[Anomaly] Starting detection run', {
     caseId,
-    algorithm: payload.algorithm,
     parameterCount: 'all',
   });
 
@@ -253,16 +171,11 @@ export const runFdrAnomalyDetection = async (
 
     if (response) {
       console.debug('[Anomaly] Received API anomaly response', {
-        algorithm: response.algorithm || algorithm,
         anomalyCount:
-          response.anomalyCount ||
-          response.count ||
-          (Array.isArray(response.anomalies) ? response.anomalies.length : null),
+          response.summary?.segments_found ||
+          (Array.isArray(response.segments) ? response.segments.length : null),
       });
-      return {
-        ...response,
-        algorithm: response.algorithm || algorithm,
-      };
+      return response;
     }
   } catch (error) {
     console.debug('[Anomaly] API detection unavailable, evaluating local fallback', {
@@ -278,13 +191,11 @@ export const runFdrAnomalyDetection = async (
     }
   }
 
-  const localResult = detectAnomaliesLocally(rows, [], algorithm);
+  const localResult = detectAnomaliesLocally(rows);
 
   if (localResult) {
     console.debug('[Anomaly] Returning local detection result', {
-      algorithm: localResult.algorithm,
-      anomalyCount: localResult.anomalyCount,
-      rawAnomalyCount: localResult.rawAnomalyCount,
+      anomalyCount: localResult.summary?.segments_found,
     });
     return localResult;
   }

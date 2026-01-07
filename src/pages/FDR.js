@@ -266,11 +266,7 @@ const detectionTrendKeys = [
     "Vertical Speed (ft/min)",
 ];
 
-const algorithmDisplayNames = {
-    zscore: "Z-score",
-    iqr: "IQR",
-    isolation_forest: "Isolation Forest",
-};
+const analysisLabel = "Behavioral Anomaly Detection (Unsupervised)";
 
 const toNumber = (value) => {
     if (value === undefined || value === null) {
@@ -492,6 +488,20 @@ const buildDetectionTrendSeries = (rows) =>
         240
     );
 
+const buildScoreTimelineSeries = (timeline) => {
+    if (!timeline || !Array.isArray(timeline.time) || !Array.isArray(timeline.score)) {
+        return [];
+    }
+
+    const length = Math.min(timeline.time.length, timeline.score.length);
+    const series = Array.from({ length }, (_, index) => ({
+        time: timeline.time[index],
+        score: timeline.score[index],
+    }));
+
+    return truncateSeries(series, 480);
+};
+
 const summarizeSeriesProfile = (data = [], key) => {
     const values = data
         .map((row) => row?.[key])
@@ -546,7 +556,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const { caseNumber: routeCaseNumber } = useParams();
     const caseNumber = propCaseNumber || routeCaseNumber;
     const navigate = useNavigate();
-    const [selectedAlgorithm, setSelectedAlgorithm] = useState("zscore");
     const [selectedCase, setSelectedCase] = useState(null);
     const [isRunningDetection, setIsRunningDetection] = useState(false);
     const [detectionTrendData, setDetectionTrendData] = useState(
@@ -644,80 +653,46 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         return groups.filter((group) => group.parameters.length > 0);
     }, [filteredParameters, parameterDisplayMap]);
-    const sampleRows = useMemo(() => {
+    const segments = useMemo(() => {
         if (!anomalyResult) {
             return [];
         }
 
-        const rows =
+        const list =
+            anomalyResult.segments ||
+            anomalyResult.segment ||
+            anomalyResult.anomalies ||
             anomalyResult.sampleRows ||
-            anomalyResult.samples ||
-            anomalyResult.anomalies;
+            anomalyResult.samples;
 
-        return Array.isArray(rows) ? rows : [];
+        return Array.isArray(list) ? list : [];
     }, [anomalyResult]);
-    const algorithmUsed = useMemo(() => {
-        const sourceAlgorithm = anomalyResult?.algorithm || selectedAlgorithm;
-
-        if (!sourceAlgorithm) {
-            return null;
-        }
-
-        if (typeof sourceAlgorithm === "string") {
-            const normalized = sourceAlgorithm.toLowerCase();
-            return algorithmDisplayNames[normalized] || sourceAlgorithm;
-        }
-
-        if (typeof sourceAlgorithm === "object") {
-            const name = sourceAlgorithm.name || sourceAlgorithm.type;
-            if (typeof name === "string") {
-                const normalized = name.toLowerCase();
-                return algorithmDisplayNames[normalized] || name;
-            }
-
-            try {
-                return JSON.stringify(sourceAlgorithm);
-            } catch (error) {
-                return String(sourceAlgorithm);
-            }
-        }
-
-        return String(sourceAlgorithm)
-    }, [anomalyResult, selectedAlgorithm]);
+    const analysisTitle = analysisLabel;
     useEffect(() => {
         if (!anomalyResult) {
             return;
         }
 
         const anomalyCountForLog =
+            anomalyResult.summary?.segments_found ??
             anomalyResult.anomalyCount ??
             anomalyResult.detectedCount ??
             anomalyResult.anomalies?.length ??
             anomalyResult.count ??
             null;
-        const rawCount =
-            anomalyResult.rawAnomalyCount ??
-            anomalyResult.raw_anomaly_count ??
-            (anomalyResult.parameterCounts
-                ? Object.values(anomalyResult.parameterCounts).reduce(
-                      (sum, value) => sum + (value || 0),
-                      0
-                  )
-                : null);
 
         console.debug("[FDR] Detection result state updated", {
-            algorithm: anomalyResult.algorithm || selectedAlgorithm,
             anomalyCount: anomalyCountForLog,
-            rawAnomalyCount: rawCount ?? undefined,
-            sampleRows: sampleRows.length,
+            segments: segments.length,
             totalRows:
+                anomalyResult.summary?.n_rows ??
                 anomalyResult.totalRows ??
                 anomalyResult.evaluatedRows ??
                 anomalyResult.total ??
                 anomalyResult.total_rows ??
                 (Array.isArray(normalizedRows) ? normalizedRows.length : undefined),
         });
-    }, [anomalyResult, normalizedRows, sampleRows.length, selectedAlgorithm]);
+    }, [anomalyResult, normalizedRows, segments.length]);
     const { recentCases, loading: isRecentLoading, error: recentCasesError } =
         useRecentCases(3);
     const caseSelectionOptions = useMemo(() => {
@@ -963,7 +938,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         try {
             const result = await runFdrAnomalyDetection(caseNumber, {
-                algorithm: selectedAlgorithm,
                 rows: normalizedRows,
             });
             setAnomalyResult(result);
@@ -981,17 +955,20 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     };
 
     const totalRows =
+        anomalyResult?.summary?.n_rows ??
         anomalyResult?.totalRows ??
         anomalyResult?.evaluatedRows ??
         anomalyResult?.total_rows ??
         anomalyResult?.total ??
         (Array.isArray(normalizedRows) ? normalizedRows.length : null);
     const anomalyCount =
+        anomalyResult?.summary?.segments_found ??
+        anomalyResult?.segments?.length ??
         anomalyResult?.anomalyCount ??
         anomalyResult?.detectedCount ??
         anomalyResult?.anomalies?.length ??
         anomalyResult?.count ??
-        sampleRows.length ??
+        segments.length ??
         null;
     const anomalyPercentage =
         anomalyResult?.anomalyPercentage ??
@@ -1017,6 +994,9 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         };
 
         const parameterBreakdown =
+            anomalyResult.summary?.top_parameters ||
+            anomalyResult.topParameters ||
+            anomalyResult.top_parameters ||
             anomalyResult.parameterCounts ||
             anomalyResult.parameter_counts ||
             anomalyResult.parameterBreakdown ||
@@ -1037,10 +1017,17 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             }
         }
 
-        if (Array.isArray(anomalyResult.anomalies)) {
-            anomalyResult.anomalies.forEach((item) =>
-                addCount(item?.parameter || item?.field || item?.metric)
-            );
+        if (Array.isArray(segments)) {
+            segments.forEach((segment) => {
+                const drivers = Array.isArray(segment?.top_drivers)
+                    ? segment.top_drivers
+                    : segment?.drivers;
+                if (Array.isArray(drivers)) {
+                    drivers.forEach((driver) =>
+                        addCount(driver?.parameter || driver?.name || driver?.field)
+                    );
+                }
+            });
         }
 
         return Array.from(counts.entries())
@@ -1048,10 +1035,12 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             .sort((a, b) => b[1] - a[1])
             .slice(0, 5)
             .map(([name, count]) => ({ name, count }));
-    }, [anomalyResult]);
+    }, [anomalyResult, segments]);
     const displayedTopParameters = useMemo(() => {
         const providedTopParameters =
-            anomalyResult?.topParameters || anomalyResult?.top_parameters;
+            anomalyResult?.summary?.top_parameters ||
+            anomalyResult?.topParameters ||
+            anomalyResult?.top_parameters;
 
         if (Array.isArray(providedTopParameters) && providedTopParameters.length > 0) {
             const normalizedTopParameters = providedTopParameters
@@ -1078,73 +1067,45 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         return topAnomalyParameters;
     }, [anomalyResult, topAnomalyParameters]);
+    const scoreTimelineData = useMemo(
+        () => buildScoreTimelineSeries(anomalyResult?.timeline),
+        [anomalyResult]
+    );
 
-    const renderSampleValues = (row) => {
-        if (!row || typeof row !== "object") {
-            return String(row ?? "");
+    const renderSegmentDrivers = (segment) => {
+        const drivers = Array.isArray(segment?.top_drivers)
+            ? segment.top_drivers
+            : segment?.drivers;
+        if (!Array.isArray(drivers) || drivers.length === 0) {
+            return "";
         }
-
-        const base =
-            (row?.values && typeof row.values === "object" && row.values) ||
-            (row?.metrics && typeof row.metrics === "object" && row.metrics) ||
-            (row?.parameters &&
-                typeof row.parameters === "object" &&
-                !Array.isArray(row.parameters) &&
-                row.parameters) ||
-            row;
-        const entries = Object.entries(base).filter(
-            ([key]) =>
-                !["rowIndex", "row_number", "index", "row", "severity", "score"].includes(
-                    key
-                )
-        );
-
-        if (entries.length === 0) {
-            return JSON.stringify(base);
-        }
-
-        return entries
+        return drivers
             .slice(0, 3)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join(" · ");
+            .map((driver) => getParameterLabel(driver?.parameter || driver?.name || ""))
+            .filter(Boolean)
+            .join(", ");
     };
     const anomalyTableRows = useMemo(
         () =>
-            sampleRows.slice(0, 10).map((row, index) => {
-                const parameters = Array.isArray(row?.parameters)
-                    ? row.parameters
-                    : Object.keys(row?.values || row || {}).filter(
-                          (key) =>
-                              ![
-                                  "rowIndex",
-                                  "row_number",
-                                  "index",
-                                  "row",
-                                  "severity",
-                                  "score",
-                                  "parameters",
-                              ].includes(key)
-                      );
-                const parameterLabel = parameters
-                    .slice(0, 3)
-                    .map((param) => getParameterLabel(param) || param)
-                    .join(", ");
-
-                const rowLabel =
-                    row?.rowIndex ?? row?.row_number ?? row?.index ?? row?.row ?? index + 1;
+            segments.slice(0, 10).map((segment, index) => {
+                const topDrivers = renderSegmentDrivers(segment);
+                const startTime = segment?.start_time ?? segment?.startTime ?? segment?.time;
+                const endTime = segment?.end_time ?? segment?.endTime ?? segment?.time;
                 const timestamp =
-                    row?.timestamp || row?.time || row?.TIME || row?.datetime || row?.recorded_at;
-                const severity = row?.severity || row?.score;
+                    startTime !== undefined && endTime !== undefined && startTime !== endTime
+                        ? `${startTime} - ${endTime}`
+                        : startTime ?? endTime ?? `Segment ${index + 1}`;
+                const severity = segment?.severity || "low";
 
                 return {
-                    id: `${rowLabel}-${index}`,
-                    parameter: parameterLabel || `Row ${rowLabel}`,
-                    time: timestamp || `Row ${rowLabel}`,
-                    severity: severity || "Flagged",
-                    summary: renderSampleValues(row),
+                    id: `${timestamp}-${index}`,
+                    parameter: topDrivers || `Segment ${index + 1}`,
+                    time: timestamp,
+                    severity,
+                    summary: segment?.explanation || "",
                 };
             }),
-        [sampleRows]
+        [segments]
     );
 
     const renderParameterCard = (parameter) => {
@@ -1410,7 +1371,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     </div>
                     <h2 className="text-2xl font-semibold text-gray-900">Detection results unavailable</h2>
                     <p className="text-sm text-gray-600 max-w-md">
-                        Run anomaly detection for this case to populate the results dashboard with algorithm-specific insights.
+                        Run anomaly detection for this case to populate the results dashboard with model insights.
                     </p>
                     <button
                         type="button"
@@ -1440,7 +1401,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             Generated insights for {selectedCase?.id} · {selectedCase?.title}
                         </p>
                         <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                            Algorithm used: {algorithmUsed || "Not specified"}
+                            {analysisTitle}
                         </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
@@ -1466,51 +1427,27 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             <div className="flex items-center justify-between">
                                 <div>
                                     <h2 className="text-lg font-semibold text-gray-900">
-                                        Detection of Anomalies
+                                        Anomaly Score Timeline
                                     </h2>
                                     <p className="text-sm text-gray-500">
-                                        Comparison of expected baseline vs detected deviations.
+                                        Window-based reconstruction error across the flight.
                                     </p>
-                                </div>
-                                <div className="flex gap-3">
-                                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                                        <span>Actual</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                                        <span className="h-2 w-2 rounded-full bg-sky-400" />
-                                        <span>Flight Baseline</span>
-                                    </div>
                                 </div>
                             </div>
                             <div className="mt-6 h-72">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={detectionTrendData}>
+                                    <ComposedChart data={scoreTimelineData.length ? scoreTimelineData : detectionTrendData}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                                         <XAxis dataKey="time" stroke="#94a3b8" />
                                         <YAxis stroke="#94a3b8" />
                                         <Tooltip />
-                                        <Bar
-                                            dataKey="PERCENT_POWER"
-                                            name="Percent Power"
-                                            fill="#d1fae5"
-                                        />
                                         <Line
                                             type="monotone"
-                                            dataKey="ALTITUDE"
-                                            stroke="#10b981"
-                                            strokeWidth={3}
-                                            dot={false}
-                                            name="Actual"
-                                        />
-                                        <Line
-                                            type="monotone"
-                                            dataKey="AIRSPEED"
+                                            dataKey={scoreTimelineData.length ? "score" : "AIRSPEED"}
                                             stroke="#38bdf8"
                                             strokeWidth={3}
-                                            strokeDasharray="6 4"
                                             dot={false}
-                                            name="Flight Baseline"
+                                            name={scoreTimelineData.length ? "Anomaly Score" : "Flight Baseline"}
                                         />
                                     </ComposedChart>
                                 </ResponsiveContainer>
@@ -1528,7 +1465,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                     </p>
                                 </div>
                                 <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                                    {anomalyCount ?? 0} anomalies detected
+                                    {anomalyCount ?? 0} segments flagged
                                     {typeof anomalyPercentage === "number"
                                         ? ` (${anomalyPercentage.toFixed(1)}%)`
                                         : ""}
@@ -1569,7 +1506,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                     className="px-4 py-4 text-center text-sm text-gray-500"
                                                     colSpan={3}
                                                 >
-                                                    No sample anomalies returned for this run.
+                                                    No segments returned for this run.
                                                 </td>
                                             </tr>
                                         )}
@@ -1582,10 +1519,10 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     <aside className="space-y-6">
                         <div className="rounded-3xl bg-white p-6 border border-gray-200">
                             <h2 className="text-lg font-semibold text-gray-900">
-                                Top anomalous parameters
+                                Top contributing parameters
                             </h2>
                             <p className="mt-1 text-sm text-gray-500">
-                                Parameters most frequently flagged by the selected algorithm.
+                                Parameters most frequently contributing to flagged segments.
                             </p>
 
                             <div className="mt-6 space-y-4">
@@ -1605,7 +1542,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                     ))
                                 ) : (
                                     <p className="text-sm text-gray-500">
-                                        No anomalous parameters reported for this run.
+                                        No contributing parameters reported for this run.
                                     </p>
                                 )}
                             </div>
@@ -1616,7 +1553,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 Anomalies Detected
                             </h2>
                             <p className="text-sm text-gray-500">
-                                Share of FDR rows flagged by the detection algorithm.
+                                Share of detected segments across the flight timeline.
                             </p>
                             <div className="mt-6 flex h-48 items-center justify-center">
                                 <div className="relative">
@@ -1733,7 +1670,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             disabled={isRunningDetection || availableParameters.length === 0}
                             className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-200"
                         >
-                            {isRunningDetection ? "Running..." : "Run Anomaly Detection"}
+                            {isRunningDetection ? "Running..." : "Run Analysis"}
                         </button>
                     </div>
                 </div>
@@ -1760,20 +1697,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     <p className="font-semibold text-gray-800">{detectionScopeLabel}</p>
                 </div>
 
-                <div className="space-y-1">
-                    <label className="text-sm font-semibold text-gray-800" htmlFor="algorithm-select">
-                        Algorithm
-                    </label>
-                    <select
-                        id="algorithm-select"
-                        value={selectedAlgorithm}
-                        onChange={(event) => setSelectedAlgorithm(event.target.value)}
-                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-                    >
-                        <option value="zscore">Z-score (default)</option>
-                        <option value="iqr">IQR</option>
-                        <option value="isolation_forest">Isolation Forest (beta)</option>
-                    </select>
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    {analysisTitle}
                 </div>
 
                 {anomalyError && (
@@ -1805,13 +1730,13 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                             : "—"}
                                     </span>
                                     <span className="ml-2 text-xs uppercase tracking-wide text-gray-500">
-                                        anomalies detected
+                                        segments flagged
                                     </span>
                                 </p>
 
                                 <p className="text-xs text-gray-500">
-                                    <span className="font-semibold text-gray-800">Algorithm:</span>
-                                    <span className="ml-1">{algorithmUsed || "Unknown"}</span>
+                                    <span className="font-semibold text-gray-800">Analysis:</span>
+                                    <span className="ml-1">{analysisTitle}</span>
                                     <span className="ml-3 font-semibold text-gray-800">Total rows:</span>
                                     <span className="ml-1 text-gray-700">
                                         {typeof totalRows === "number" ? totalRows.toLocaleString() : "—"}
@@ -1821,7 +1746,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 {topAnomalyParameters.length > 0 && (
                                     <div className="space-y-1 mt-2">
                                         <p className="text-xs font-semibold text-gray-700">
-                                            Parameters with most anomalies
+                                            Parameters with most flagged segments
                                         </p>
                                         <ul className="text-sm text-gray-700 space-y-1">
                                             {topAnomalyParameters.map(({ name, count }) => (
@@ -1831,7 +1756,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                 >
                                                     <span>{name}</span>
                                                     <span className="text-xs text-gray-500">
-                                                        {count} {count === 1 ? "anomaly" : "anomalies"}
+                                                        {count} {count === 1 ? "segment" : "segments"}
                                                     </span>
                                                 </li>
                                             ))}
@@ -1841,32 +1766,36 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
                                 {noAnomaliesDetected && (
                                     <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                                        No anomalies detected for the current run.
+                                        No segments flagged for the current run.
                                     </div>
                                 )}
 
                                 {!noAnomaliesDetected && (
                                     <div className="space-y-2">
-                                        <p className="text-xs font-semibold text-gray-700">Sample anomalous rows</p>
-                                        {sampleRows.length > 0 ? (
+                                        <p className="text-xs font-semibold text-gray-700">Sample segments</p>
+                                        {segments.length > 0 ? (
                                             <ul className="space-y-2">
-                                                {sampleRows.slice(0, 5).map((row, index) => {
-                                                    const rowLabel =
-                                                        row?.rowIndex ||
-                                                        row?.row_number ||
-                                                        row?.index ||
-                                                        row?.row ||
+                                                {segments.slice(0, 5).map((segment, index) => {
+                                                    const startTime =
+                                                        segment?.start_time ??
+                                                        segment?.startTime ??
+                                                        segment?.time ??
                                                         index + 1;
-                                                    const severity = row?.severity || row?.score;
+                                                    const endTime =
+                                                        segment?.end_time ??
+                                                        segment?.endTime ??
+                                                        segment?.time ??
+                                                        startTime;
+                                                    const severity = segment?.severity || "low";
 
                                                     return (
                                                         <li
-                                                            key={`${rowLabel}-${index}`}
+                                                            key={`${startTime}-${endTime}-${index}`}
                                                             className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
                                                         >
                                                             <div className="flex items-center justify-between">
                                                                 <span className="font-semibold text-gray-800">
-                                                                    Row {rowLabel}
+                                                                    Segment {index + 1}
                                                                 </span>
                                                                 {severity && (
                                                                     <span className="text-xs rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
@@ -1875,7 +1804,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                                 )}
                                                             </div>
                                                             <p className="text-xs text-gray-600 break-words">
-                                                                {renderSampleValues(row)}
+                                                                {segment?.explanation ||
+                                                                    `Time ${startTime} - ${endTime}`}
                                                             </p>
                                                         </li>
                                                     );
@@ -1883,7 +1813,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                             </ul>
                                         ) : (
                                             <p className="text-sm text-gray-500">
-                                                No sample anomalies returned for this run.
+                                                No segments returned for this run.
                                             </p>
                                         )}
                                     </div>

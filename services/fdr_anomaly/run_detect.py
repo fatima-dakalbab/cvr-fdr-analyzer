@@ -6,7 +6,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from services.fdr_anomaly.detect import detect_to_json
+from services.fdr_anomaly.autoencoder import detect_to_json
 
 
 def main() -> int:

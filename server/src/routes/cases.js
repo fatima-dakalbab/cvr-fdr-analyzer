@@ -22,9 +22,7 @@ router.get('/', async (_req, res, next) => {
 
 router.post('/:caseNumber/fdr/analyze', async (req, res, next) => {
   try {
-    const { algorithm } = req.body || {};
-
-    const result = await analyzeFdrForCase(req.params.caseNumber, { algorithm });
+    const result = await analyzeFdrForCase(req.params.caseNumber);
     res.json(result);
   } catch (error) {
     next(error);
