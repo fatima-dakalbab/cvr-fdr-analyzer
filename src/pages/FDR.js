@@ -10,6 +10,8 @@ import {
     Tooltip,
     Line,
     Bar,
+    ReferenceArea,
+    ReferenceLine,
 } from "recharts";
 import { fetchCaseByNumber } from "../api/cases";
 import { runFdrAnomalyDetection } from "../api/anomaly";
@@ -150,6 +152,7 @@ const maxChartPoints = 400;
 const sampleNormalizedRows = [
     {
         time: "00:00",
+        sessionTime: 0,
         "GPS Altitude (feet)": 1200,
         "Pressure Altitude (ft)": 1185,
         "Indicated Airspeed (knots)": 145,
@@ -168,6 +171,7 @@ const sampleNormalizedRows = [
     },
     {
         time: "00:10",
+        sessionTime: 10,
 "GPS Altitude (feet)": 1800,
         "Pressure Altitude (ft)": 1782,
         "Indicated Airspeed (knots)": 152,
@@ -186,6 +190,7 @@ const sampleNormalizedRows = [
     },
     {
         time: "00:20",
+        sessionTime: 20,
         "GPS Altitude (feet)": 2400,
         "Pressure Altitude (ft)": 2388,
         "Indicated Airspeed (knots)": 160,
@@ -204,6 +209,7 @@ const sampleNormalizedRows = [
     },
     {
         time: "00:30",
+        sessionTime: 30,
         "GPS Altitude (feet)": 2900,
         "Pressure Altitude (ft)": 2885,
         "Indicated Airspeed (knots)": 166,
@@ -222,6 +228,7 @@ const sampleNormalizedRows = [
     },
     {
         time: "00:40",
+        sessionTime: 40,
         "GPS Altitude (feet)": 3200,
         "Pressure Altitude (ft)": 3190,
         "Indicated Airspeed (knots)": 170,
@@ -240,6 +247,7 @@ const sampleNormalizedRows = [
     },
     {
         time: "00:50",
+        sessionTime: 50,
         "GPS Altitude (feet)": 3600,
         "Pressure Altitude (ft)": 3592,
         "Indicated Airspeed (knots)": 176,
@@ -382,6 +390,13 @@ const formatSessionTime = (value) => {
     return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
 };
 
+const formatNumericValue = (value) => {
+    if (!Number.isFinite(value)) {
+        return "—";
+    }
+    return Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+};
+
 const resolveTimeLabel = (row, index) => {
     const systemTime = row["System Time"] || row["GPS Date & Time"];
     if (systemTime) {
@@ -405,7 +420,11 @@ const normalizeFdrRows = (csvText) => {
     );
 
     const rows = rawRows.map((row, index) => {
-        const normalized = { time: resolveTimeLabel(row, index) };
+        const sessionSeconds = toNumber(row["Session Time"]);
+        const normalized = {
+            time: resolveTimeLabel(row, index),
+            sessionTime: sessionSeconds !== null ? sessionSeconds : index,
+        };
 
         numericHeaders.forEach((header) => {
             const value = toNumber(row[header]);
@@ -570,6 +589,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [normalizedRows, setNormalizedRows] = useState(sampleNormalizedRows);
     const [chartFilterText, setChartFilterText] = useState("");
     const [expandedGroups, setExpandedGroups] = useState(() => new Set());
+    const [expandedSegments, setExpandedSegments] = useState(() => new Set());
     const [anomalyResult, setAnomalyResult] = useState(null);
     const [anomalyError, setAnomalyError] = useState("");
     const [isLoadingFdrData, setIsLoadingFdrData] = useState(false);
@@ -927,6 +947,18 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         });
     };
 
+    const handleToggleSegment = (segmentKey) => {
+        setExpandedSegments((prev) => {
+            const next = new Set(prev);
+            if (next.has(segmentKey)) {
+                next.delete(segmentKey);
+            } else {
+                next.add(segmentKey);
+            }
+            return next;
+        });
+    };
+
     const handleRunDetection = async () => {
         if (availableParameters.length === 0 || !caseNumber) {
             return;
@@ -1085,10 +1117,12 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const formatSegmentTimeRange = (segment, index) => {
         const startTime = segment?.start_time ?? segment?.startTime ?? segment?.time;
         const endTime = segment?.end_time ?? segment?.endTime ?? segment?.time;
+        const formatValue = (value) =>
+            Number.isFinite(Number(value)) ? formatSessionTime(Number(value)) : value;
         if (startTime !== undefined && endTime !== undefined && startTime !== endTime) {
-            return `${startTime} - ${endTime}`;
+            return `${formatValue(startTime)} - ${formatValue(endTime)}`;
         }
-        return startTime ?? endTime ?? `Segment ${index + 1}`;
+        return formatValue(startTime ?? endTime) ?? `Segment ${index + 1}`;
     };
     const formatSeverityLabel = (value) => {
         if (!value) {
@@ -1096,6 +1130,33 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         }
         const text = String(value);
         return text.charAt(0).toUpperCase() + text.slice(1);
+    };
+    const renderScoreTooltip = ({ active, payload, label }) => {
+        if (!active || !payload || payload.length === 0) {
+            return null;
+        }
+        const value = payload[0]?.value;
+        const formattedLabel = Number.isFinite(label)
+            ? formatSessionTime(label)
+            : label;
+        return (
+            <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 shadow-sm">
+                <p className="font-semibold text-gray-800">
+                    Behavioral Deviation Score (autoencoder reconstruction error)
+                </p>
+                <p className="mt-1">
+                    Higher = more deviation.{" "}
+                    <span className="font-semibold text-gray-900">
+                        {formatNumericValue(value)}
+                    </span>
+                </p>
+                {formattedLabel && (
+                    <p className="mt-1 text-[11px] text-gray-500">
+                        Session Time: {formattedLabel}
+                    </p>
+                )}
+            </div>
+        );
     };
 
     const mostSevereSegment = useMemo(() => {
@@ -1123,40 +1184,70 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         detectionSummary.stride ?? detectionSummary.window_stride ?? detectionSummary.windowStride ?? null;
     const detectionThresholdPercentile =
         detectionSummary.threshold_percentile ?? detectionSummary.thresholdPercentile ?? null;
+    const detectionThresholdValue =
+        detectionSummary.threshold_value ?? detectionSummary.thresholdValue ?? null;
     const detectionParamsUsed =
         detectionSummary.n_params_used ?? detectionSummary.nParamsUsed ?? null;
     const visibleTopParameters = showAllParameters ? allTopParameters : topParameterPreview;
 
-    const renderSegmentDrivers = (segment) => {
+    const resolveSegmentTimeBounds = (segment) => {
+        const startTime = Number(
+            segment?.start_time ?? segment?.startTime ?? segment?.time
+        );
+        const endTime = Number(
+            segment?.end_time ?? segment?.endTime ?? segment?.time
+        );
+        if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+            return null;
+        }
+        return {
+            startTime: Math.min(startTime, endTime),
+            endTime: Math.max(startTime, endTime),
+        };
+    };
+
+    const resolveSegmentDrivers = (segment, limit = 3) => {
         const drivers = Array.isArray(segment?.top_drivers)
             ? segment.top_drivers
             : segment?.drivers;
         if (!Array.isArray(drivers) || drivers.length === 0) {
-            return "";
+            return [];
         }
-        return drivers
-            .slice(0, 3)
-            .map((driver) => getParameterLabel(driver?.parameter || driver?.name || ""))
-            .filter(Boolean)
-            .join(", ");
+        return drivers.slice(0, limit).map((driver) => {
+            const param = driver?.parameter || driver?.name || driver?.field || "";
+            const meta = parameterDisplayMap[param] || getParameterDisplayMeta(param);
+            const stats =
+                segment?.driver_stats?.find((item) => item?.param === param) ||
+                segment?.driverStats?.find((item) => item?.param === param);
+            return {
+                param,
+                label: meta?.label || param,
+                unit: stats?.unit || meta?.unit || "",
+                stats,
+            };
+        });
     };
-    const anomalyTableRows = useMemo(
-        () =>
-            segments.slice(0, 10).map((segment, index) => {
-                const topDrivers = renderSegmentDrivers(segment);
-                const timestamp = formatSegmentTimeRange(segment, index);
-                const severity = segment?.severity || "low";
 
-                return {
-                    id: `${timestamp}-${index}`,
-                    parameter: topDrivers || `Segment ${index + 1}`,
-                    time: timestamp,
-                    severity,
-                    summary: segment?.explanation || "",
-                };
-            }),
-        [segments]
-    );
+    const buildSegmentChartData = (parameter, bounds, paddingSeconds = 20) => {
+        if (!parameter || !bounds) {
+            return [];
+        }
+        const lower = Math.max(0, bounds.startTime - paddingSeconds);
+        const upper = bounds.endTime + paddingSeconds;
+        return normalizedRows
+            .map((row) => ({
+                sessionTime: row.sessionTime,
+                value: row[parameter],
+            }))
+            .filter(
+                (row) =>
+                    typeof row.sessionTime === "number" &&
+                    typeof row.value === "number" &&
+                    !Number.isNaN(row.value) &&
+                    row.sessionTime >= lower &&
+                    row.sessionTime <= upper
+            );
+    };
 
     const renderParameterCard = (parameter) => {
         const meta = parameterDisplayMap[parameter] || {
@@ -1475,7 +1566,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     <div className="flex items-center justify-between">
                         <div>
                             <h2 className="text-lg font-semibold text-gray-900">
-                                Anomaly Score Timeline
+                                Behavioral Deviation Score Timeline
                             </h2>
                             <p className="text-sm text-gray-500">
                                 Window-based reconstruction error across the flight.
@@ -1488,18 +1579,38 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                                 <XAxis dataKey="time" stroke="#94a3b8" />
                                 <YAxis stroke="#94a3b8" />
-                                <Tooltip />
+                                <Tooltip content={renderScoreTooltip} />
+                                {Number.isFinite(detectionThresholdValue) && (
+                                    <ReferenceLine
+                                        y={detectionThresholdValue}
+                                        stroke="#f97316"
+                                        strokeDasharray="6 4"
+                                        label={{
+                                            value: "Detection Threshold",
+                                            position: "right",
+                                            fill: "#f97316",
+                                            fontSize: 11,
+                                        }}
+                                    />
+                                )}
                                 <Line
                                     type="monotone"
                                     dataKey={scoreTimelineData.length ? "score" : "AIRSPEED"}
                                     stroke="#38bdf8"
                                     strokeWidth={3}
                                     dot={false}
-                                    name={scoreTimelineData.length ? "Anomaly Score" : "Flight Baseline"}
+                                    name={
+                                        scoreTimelineData.length
+                                            ? "Behavioral Deviation Score"
+                                            : "Flight Baseline"
+                                    }
                                 />
                             </ComposedChart>
                         </ResponsiveContainer>
                     </div>
+                    <p className="mt-3 text-xs text-gray-500">
+                        Higher values indicate stronger deviation from learned normal behavior (not a probability).
+                    </p>
                 </section>
 
                 <section className="space-y-4">
@@ -1658,47 +1769,222 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 : ""}
                         </span>
                     </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead className="text-xs uppercase tracking-wide text-gray-500">
-                                <tr className="border-b border-gray-100">
-                                    <th className="px-4 py-3 text-left">Parameter</th>
-                                    <th className="px-4 py-3 text-left">Timestamp</th>
-                                    <th className="px-4 py-3 text-right">Severity</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {anomalyTableRows.length > 0 ? (
-                                    anomalyTableRows.map((row) => (
-                                        <tr key={row.id} className="hover:bg-gray-50">
-                                            <td className="px-4 py-3 font-medium text-gray-800">
-                                                <div>{row.parameter}</div>
-                                                {row.summary && (
-                                                    <p className="text-xs text-gray-500 mt-1 break-words">
-                                                        {row.summary}
-                                                    </p>
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-3 text-gray-500">{row.time}</td>
-                                            <td className="px-4 py-3 text-right">
-                                                <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50">
-                                                    {row.severity}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    <tr>
-                                        <td
-                                            className="px-4 py-4 text-center text-sm text-gray-500"
-                                            colSpan={3}
+                    <div className="space-y-3">
+                        {segments.length > 0 ? (
+                            segments.map((segment, index) => {
+                                const segmentKey = `${segment?.start_time ?? "seg"}-${index}`;
+                                const isExpanded = expandedSegments.has(segmentKey);
+                                const topDrivers = resolveSegmentDrivers(segment);
+                                const timeRange = formatSegmentTimeRange(segment, index);
+                                const severity = formatSeverityLabel(segment?.severity);
+                                const timeBounds = resolveSegmentTimeBounds(segment);
+
+                                return (
+                                    <div
+                                        key={segmentKey}
+                                        className="rounded-2xl border border-gray-200 bg-white shadow-sm"
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => handleToggleSegment(segmentKey)}
+                                            className="flex w-full flex-col gap-3 px-4 py-4 text-left transition hover:bg-gray-50 md:flex-row md:items-center md:justify-between"
                                         >
-                                            No segments returned for this run.
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
+                                            <div className="space-y-1">
+                                                <p className="text-xs uppercase tracking-[0.25em] text-gray-400">
+                                                    Segment {index + 1}
+                                                </p>
+                                                <p className="text-sm font-semibold text-gray-900">
+                                                    {timeRange}
+                                                </p>
+                                                <p className="text-xs text-gray-500">
+                                                    {topDrivers.length > 0
+                                                        ? topDrivers
+                                                              .map((driver) => driver.label)
+                                                              .join(", ")
+                                                        : "No drivers reported."}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50">
+                                                    {severity}
+                                                </span>
+                                                <span className="text-xs font-semibold text-emerald-600">
+                                                    {isExpanded ? "Hide evidence" : "View evidence"}
+                                                </span>
+                                            </div>
+                                        </button>
+
+                                        {isExpanded && (
+                                            <div className="border-t border-gray-100 bg-gray-50/70 px-4 py-4">
+                                                <p className="text-xs text-gray-500 mb-4">
+                                                    Evidence Panel: zoomed to segment window with anomaly
+                                                    markers.
+                                                </p>
+                                                <div className="grid gap-4 lg:grid-cols-3">
+                                                    {topDrivers.length > 0 ? (
+                                                        topDrivers.map((driver) => {
+                                                            const chartData = buildSegmentChartData(
+                                                                driver.param,
+                                                                timeBounds
+                                                            );
+                                                            const unitLabel = driver.unit
+                                                                ? ` (${driver.unit})`
+                                                                : "";
+                                                            const stats = driver.stats;
+
+                                                            return (
+                                                                <div
+                                                                    key={`${segmentKey}-${driver.param}`}
+                                                                    className="rounded-2xl border border-gray-200 bg-white p-3"
+                                                                >
+                                                                    <p className="text-sm font-semibold text-gray-900">
+                                                                        {driver.label}
+                                                                        {unitLabel}
+                                                                    </p>
+                                                                    <div className="mt-3 h-40">
+                                                                        {chartData.length > 0 ? (
+                                                                            <ResponsiveContainer
+                                                                                width="100%"
+                                                                                height="100%"
+                                                                            >
+                                                                                <ComposedChart
+                                                                                    data={chartData}
+                                                                                    margin={{
+                                                                                        top: 8,
+                                                                                        right: 12,
+                                                                                        left: 0,
+                                                                                        bottom: 0,
+                                                                                    }}
+                                                                                >
+                                                                                    <CartesianGrid
+                                                                                        strokeDasharray="3 3"
+                                                                                        stroke="#e5e7eb"
+                                                                                    />
+                                                                                    <XAxis
+                                                                                        dataKey="sessionTime"
+                                                                                        stroke="#94a3b8"
+                                                                                        tickFormatter={
+                                                                                            formatSessionTime
+                                                                                        }
+                                                                                        minTickGap={20}
+                                                                                    />
+                                                                                    <YAxis
+                                                                                        stroke="#94a3b8"
+                                                                                        domain={["auto", "auto"]}
+                                                                                    />
+                                                                                    {timeBounds && (
+                                                                                        <ReferenceArea
+                                                                                            x1={timeBounds.startTime}
+                                                                                            x2={timeBounds.endTime}
+                                                                                            fill="#fee2e2"
+                                                                                            stroke="#ef4444"
+                                                                                            strokeOpacity={0.7}
+                                                                                        />
+                                                                                    )}
+                                                                                    <Tooltip
+                                                                                        content={({
+                                                                                            active,
+                                                                                            payload,
+                                                                                            label,
+                                                                                        }) => {
+                                                                                            if (
+                                                                                                !active ||
+                                                                                                !payload?.length
+                                                                                            ) {
+                                                                                                return null;
+                                                                                            }
+                                                                                            return (
+                                                                                                <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 shadow-sm">
+                                                                                                    <p className="font-semibold text-gray-800">
+                                                                                                        {driver.label}
+                                                                                                    </p>
+                                                                                                    <p className="mt-1">
+                                                                                                        {formatNumericValue(
+                                                                                                            payload[0]
+                                                                                                                .value
+                                                                                                        )}{" "}
+                                                                                                        {driver.unit}
+                                                                                                    </p>
+                                                                                                    <p className="mt-1 text-[11px] text-gray-500">
+                                                                                                        Session Time:{" "}
+                                                                                                        {formatSessionTime(
+                                                                                                            label
+                                                                                                        )}
+                                                                                                    </p>
+                                                                                                </div>
+                                                                                            );
+                                                                                        }}
+                                                                                    />
+                                                                                    <Line
+                                                                                        type="monotone"
+                                                                                        dataKey="value"
+                                                                                        stroke="#0ea5e9"
+                                                                                        strokeWidth={2}
+                                                                                        dot={false}
+                                                                                        connectNulls
+                                                                                        isAnimationActive={false}
+                                                                                    />
+                                                                                </ComposedChart>
+                                                                            </ResponsiveContainer>
+                                                                        ) : (
+                                                                            <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 text-xs text-gray-500">
+                                                                                No numeric data available.
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="mt-3 space-y-1 text-xs text-gray-600">
+                                                                        <p>
+                                                                            <span className="font-semibold text-gray-700">
+                                                                                Segment range:
+                                                                            </span>{" "}
+                                                                            {formatNumericValue(
+                                                                                stats?.segment_min
+                                                                            )}{" "}
+                                                                            →{" "}
+                                                                            {formatNumericValue(
+                                                                                stats?.segment_max
+                                                                            )}
+                                                                        </p>
+                                                                        <p>
+                                                                            <span className="font-semibold text-gray-700">
+                                                                                Baseline (5–95%):
+                                                                            </span>{" "}
+                                                                            {formatNumericValue(
+                                                                                stats?.baseline_p5
+                                                                            )}{" "}
+                                                                            →{" "}
+                                                                            {formatNumericValue(
+                                                                                stats?.baseline_p95
+                                                                            )}
+                                                                        </p>
+                                                                        <p>
+                                                                            <span className="font-semibold text-gray-700">
+                                                                                Baseline median:
+                                                                            </span>{" "}
+                                                                            {formatNumericValue(
+                                                                                stats?.baseline_median
+                                                                            )}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })
+                                                    ) : (
+                                                        <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-4 text-sm text-gray-500">
+                                                            No contributing parameters reported for this segment.
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+                                No segments returned for this run.
+                            </div>
+                        )}
                     </div>
                 </section>
 
