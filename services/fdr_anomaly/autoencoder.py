@@ -310,6 +310,17 @@ def _score_to_severity(score: float, scores: np.ndarray, high_threshold: float) 
     return "low"
 
 
+def _extract_unit(parameter: str) -> str:
+    if not parameter:
+        return ""
+    if "(" in parameter and ")" in parameter:
+        start = parameter.find("(")
+        end = parameter.find(")", start + 1)
+        if end > start:
+            return parameter[start + 1 : end].strip()
+    return ""
+
+
 def _build_review_segments(
     timestamps: np.ndarray,
     scores: np.ndarray,
@@ -433,6 +444,50 @@ def detect_anomalies(
             continue
         flagged_mask |= (timestamps >= start_time) & (timestamps <= end_time)
 
+    baseline_mask = ~flagged_mask
+    baseline_df = numeric_df[baseline_mask]
+    if baseline_df.empty:
+        baseline_df = numeric_df
+
+    baseline_stats: Dict[str, Dict[str, float]] = {}
+    for name in feature_names:
+        values = baseline_df[name].to_numpy(dtype=float)
+        if values.size == 0:
+            continue
+        baseline_stats[name] = {
+            "baseline_p5": float(np.percentile(values, 5)),
+            "baseline_p95": float(np.percentile(values, 95)),
+            "baseline_median": float(np.median(values)),
+        }
+
+    for segment in segments:
+        start_time = segment.get("start_time")
+        end_time = segment.get("end_time")
+        if start_time is None or end_time is None:
+            continue
+        segment_mask = (timestamps >= start_time) & (timestamps <= end_time)
+        driver_stats = []
+        for driver in segment.get("top_drivers", []):
+            name = driver.get("parameter")
+            if not name or name not in numeric_df.columns:
+                continue
+            segment_values = numeric_df.loc[segment_mask, name].to_numpy(dtype=float)
+            if segment_values.size == 0:
+                continue
+            baseline = baseline_stats.get(name, {})
+            driver_stats.append(
+                {
+                    "param": name,
+                    "unit": _extract_unit(name),
+                    "segment_min": float(np.min(segment_values)),
+                    "segment_max": float(np.max(segment_values)),
+                    "baseline_p5": baseline.get("baseline_p5"),
+                    "baseline_p95": baseline.get("baseline_p95"),
+                    "baseline_median": baseline.get("baseline_median"),
+                }
+            )
+        segment["driver_stats"] = driver_stats
+
     flagged_row_count = int(flagged_mask.sum())
     flagged_percent = (flagged_row_count / n_rows) * 100 if n_rows else 0.0
 
@@ -446,6 +501,7 @@ def detect_anomalies(
         "window_size": int(window_size),
         "stride": int(stride),
         "threshold_percentile": float(threshold_percentile),
+        "threshold_value": float(threshold),
     }
 
     timeline = TimelineData(
