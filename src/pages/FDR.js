@@ -147,11 +147,17 @@ const parameterGroupDefinitions = [
 ];
 
 const defaultVisibleChartsPerGroup = 8;
-const maxChartPoints = 400;
+const maxChartPoints = 1200;
+const maxSegmentChartPoints = 600;
+const timeSources = {
+    session: "session",
+    gps: "gps",
+    index: "index",
+};
 
 const sampleNormalizedRows = [
     {
-        time: "00:00",
+        time: 0,
         sessionTime: 0,
         "GPS Altitude (feet)": 1200,
         "Pressure Altitude (ft)": 1185,
@@ -170,7 +176,7 @@ const sampleNormalizedRows = [
         "Roll (deg)": 0.2,
     },
     {
-        time: "00:10",
+        time: 10,
         sessionTime: 10,
 "GPS Altitude (feet)": 1800,
         "Pressure Altitude (ft)": 1782,
@@ -189,7 +195,7 @@ const sampleNormalizedRows = [
         "Roll (deg)": 0.1,
     },
     {
-        time: "00:20",
+        time: 20,
         sessionTime: 20,
         "GPS Altitude (feet)": 2400,
         "Pressure Altitude (ft)": 2388,
@@ -208,7 +214,7 @@ const sampleNormalizedRows = [
         "Roll (deg)": -0.1,
     },
     {
-        time: "00:30",
+        time: 30,
         sessionTime: 30,
         "GPS Altitude (feet)": 2900,
         "Pressure Altitude (ft)": 2885,
@@ -227,7 +233,7 @@ const sampleNormalizedRows = [
         "Roll (deg)": -0.3,
     },
     {
-        time: "00:40",
+        time: 40,
         sessionTime: 40,
         "GPS Altitude (feet)": 3200,
         "Pressure Altitude (ft)": 3190,
@@ -246,7 +252,7 @@ const sampleNormalizedRows = [
         "Roll (deg)": -0.6,
     },
     {
-        time: "00:50",
+        time: 50,
         sessionTime: 50,
         "GPS Altitude (feet)": 3600,
         "Pressure Altitude (ft)": 3592,
@@ -381,6 +387,30 @@ const parseSessionTime = (value) => {
     return Number.isFinite(numeric) ? numeric : null;
 };
 
+const parseGpsDateTime = (value) => {
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+        if (value > 1e12) {
+            return value;
+        }
+        if (value > 1e9) {
+            return value * 1000;
+        }
+        return null;
+    }
+
+    const raw = String(value).trim();
+    if (!raw) {
+        return null;
+    }
+
+    const parsed = Date.parse(raw);
+    return Number.isNaN(parsed) ? null : parsed;
+};
+
 const getKnownParameterMatch = (header = "") => {
     const normalized = normalizeHeader(header);
     return (
@@ -492,6 +522,24 @@ const formatSessionTime = (value) => {
     )}`;
 };
 
+const formatUtcTime = (value) => {
+    if (value === null || value === undefined) {
+        return "";
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return "";
+    }
+
+    return new Intl.DateTimeFormat("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        timeZone: "UTC",
+    }).format(date);
+};
+
 const formatNumericValue = (value) => {
     if (!Number.isFinite(value)) {
         return "—";
@@ -515,6 +563,18 @@ const formatAnalysisTimestamp = (value) => {
     }).format(date);
 };
 
+const resolveTimeSource = (rows) => {
+    const hasSessionTime = rows.some((row) => parseSessionTime(row["Session Time"]) !== null);
+    if (hasSessionTime) {
+        return timeSources.session;
+    }
+    const hasGpsTime = rows.some((row) => parseGpsDateTime(row["GPS Date & Time"]) !== null);
+    if (hasGpsTime) {
+        return timeSources.gps;
+    }
+    return timeSources.index;
+};
+
 const normalizeFdrRows = (csvText) => {
     const { headers, rows: rawRows } = parseCsvRows(csvText);
     const numericHeaders = headers.filter(
@@ -522,13 +582,21 @@ const normalizeFdrRows = (csvText) => {
             !isExcludedTimeColumn(header) &&
             rawRows.some((row) => toNumber(row[header]) !== null)
     );
+    const timeSource = resolveTimeSource(rawRows);
 
     const rows = rawRows.map((row, index) => {
         const sessionSeconds = parseSessionTime(row["Session Time"]);
-        const normalizedTime = sessionSeconds !== null ? sessionSeconds : index;
+        const gpsTimestamp = parseGpsDateTime(row["GPS Date & Time"]);
+        let normalizedTime = index;
+        if (timeSource === timeSources.session) {
+            normalizedTime = sessionSeconds !== null ? sessionSeconds : index;
+        } else if (timeSource === timeSources.gps) {
+            normalizedTime = gpsTimestamp !== null ? gpsTimestamp : index;
+        }
         const normalized = {
             time: normalizedTime,
-            sessionTime: normalizedTime,
+            sessionTime: timeSource === timeSources.session ? normalizedTime : null,
+            rowIndex: index,
         };
 
         numericHeaders.forEach((header) => {
@@ -541,16 +609,28 @@ const normalizeFdrRows = (csvText) => {
         return normalized;
     });
 
-    const sortedRows = [...rows].sort((a, b) => a.sessionTime - b.sessionTime);
+    const sortedRows = [...rows].sort((a, b) => a.time - b.time);
 
-    return { rows: sortedRows, numericHeaders };
+    return { rows: sortedRows, numericHeaders, timeSource };
 };
 
 const hasNumericValue = (row, keys) =>
     keys.some((key) => typeof row[key] === "number" && !Number.isNaN(row[key]));
 
-const truncateSeries = (series, maxPoints = maxChartPoints) =>
-    series.length > maxPoints ? series.slice(0, maxPoints) : series;
+const downsampleSeries = (series, maxPoints = maxChartPoints) => {
+    if (series.length <= maxPoints) {
+        return series;
+    }
+    const step = Math.ceil(series.length / maxPoints);
+    const sampled = [];
+    for (let i = 0; i < series.length; i += step) {
+        sampled.push(series[i]);
+    }
+    if (sampled[sampled.length - 1] !== series[series.length - 1]) {
+        sampled.push(series[series.length - 1]);
+    }
+    return sampled;
+};
 
 const deriveAvailableParameters = (rows, orderedHeaders = []) => {
     const available = new Set();
@@ -564,7 +644,13 @@ const deriveAvailableParameters = (rows, orderedHeaders = []) => {
     if (available.size === 0) {
         rows.forEach((row) => {
             Object.entries(row).forEach(([key, value]) => {
-                if (key !== "time" && typeof value === "number" && !Number.isNaN(value)) {
+                if (
+                    key !== "time" &&
+                    key !== "sessionTime" &&
+                    key !== "rowIndex" &&
+                    typeof value === "number" &&
+                    !Number.isNaN(value)
+                ) {
                     available.add(key);
                 }
             });
@@ -599,15 +685,15 @@ const buildParameterTable = (rows, parameters) =>
         .filter(Boolean);
 
 const buildDetectionTrendSeries = (rows) =>
-    truncateSeries(
+    downsampleSeries(
         rows
             .filter(
                 (row) =>
-                    typeof row.sessionTime === "number" &&
+                    typeof row.time === "number" &&
                     hasNumericValue(row, detectionTrendKeys)
             )
             .map((row) => {
-                const entry = { sessionTime: row.sessionTime };
+                const entry = { time: row.time };
                 detectionTrendKeys.forEach((key) => {
                     if (row[key] !== undefined) {
                         entry[key] = row[key];
@@ -615,23 +701,23 @@ const buildDetectionTrendSeries = (rows) =>
                 });
                 return entry;
             }),
-        240
+        480
     );
 
-const buildScoreTimelineSeries = (timeline) => {
+const buildScoreTimelineSeries = (timeline, mapTimeValue) => {
     if (!timeline || !Array.isArray(timeline.time) || !Array.isArray(timeline.score)) {
         return [];
     }
 
     const length = Math.min(timeline.time.length, timeline.score.length);
     const series = Array.from({ length }, (_, index) => ({
-        sessionTime: Number(timeline.time[index]),
+        time: mapTimeValue ? mapTimeValue(Number(timeline.time[index])) : Number(timeline.time[index]),
         score: timeline.score[index],
     }))
-        .filter((entry) => Number.isFinite(entry.sessionTime))
-        .sort((a, b) => a.sessionTime - b.sessionTime);
+        .filter((entry) => Number.isFinite(entry.time))
+        .sort((a, b) => a.time - b.time);
 
-    return truncateSeries(series, 480);
+    return downsampleSeries(series, 480);
 };
 
 const deriveInterpretationTags = (driverLabels = []) => {
@@ -701,7 +787,7 @@ const getSeriesRenderConfig = (data = [], key) => {
 };
 
 const sampleParameterHeaders = Object.keys(sampleNormalizedRows[0] || {}).filter(
-    (key) => key !== "time"
+    (key) => key !== "time" && key !== "sessionTime" && key !== "rowIndex"
 );
 const defaultAvailableParameters = deriveAvailableParameters(
     sampleNormalizedRows,
@@ -729,6 +815,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         defaultAvailableParameters
     );
     const [normalizedRows, setNormalizedRows] = useState(sampleNormalizedRows);
+    const [timeSource, setTimeSource] = useState(timeSources.session);
     const [chartFilterText, setChartFilterText] = useState("");
     const [expandedGroups, setExpandedGroups] = useState(() => new Set());
     const [expandedSegments, setExpandedSegments] = useState(() => new Set());
@@ -832,6 +919,65 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         return Array.isArray(list) ? list : [];
     }, [anomalyResult]);
     const analysisTitle = analysisLabel;
+    const timeAxisLabel = useMemo(() => {
+        if (timeSource === timeSources.session) {
+            return "Flight Time (Session Time)";
+        }
+        if (timeSource === timeSources.gps) {
+            return "Flight Time (UTC)";
+        }
+        return "Flight Time";
+    }, [timeSource]);
+    const formatFlightTime = useCallback(
+        (value) => {
+            if (!Number.isFinite(value)) {
+                return "";
+            }
+            if (timeSource === timeSources.gps) {
+                return formatUtcTime(value);
+            }
+            if (timeSource === timeSources.session) {
+                return formatSessionTime(value);
+            }
+            return String(value);
+        },
+        [timeSource]
+    );
+    const timeDomain = useMemo(() => {
+        const values = normalizedRows
+            .map((row) => row.time)
+            .filter((value) => Number.isFinite(value));
+        if (values.length === 0) {
+            return null;
+        }
+        return { min: Math.min(...values), max: Math.max(...values) };
+    }, [normalizedRows]);
+    const timeIndexMap = useMemo(() => {
+        const map = new Map();
+        normalizedRows.forEach((row) => {
+            if (Number.isInteger(row.rowIndex) && Number.isFinite(row.time)) {
+                map.set(row.rowIndex, row.time);
+            }
+        });
+        return map;
+    }, [normalizedRows]);
+    const mapTimeValue = useCallback(
+        (value) => {
+            if (!Number.isFinite(value)) {
+                return null;
+            }
+            if (!timeDomain) {
+                return value;
+            }
+            if (value < timeDomain.min || value > timeDomain.max) {
+                if (Number.isInteger(value) && timeIndexMap.has(value)) {
+                    return timeIndexMap.get(value);
+                }
+            }
+            return value;
+        },
+        [timeDomain, timeIndexMap]
+    );
     useEffect(() => {
         if (!anomalyResult) {
             return;
@@ -959,6 +1105,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             setAvailableParameters(defaultAvailableParameters);
             setFdrDataError("");
             setIsLoadingFdrData(false);
+            setTimeSource(timeSources.session);
             return;
         }
 
@@ -987,6 +1134,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             setNormalizedRows(sampleNormalizedRows);
             setFdrDataError("The selected case does not include an uploaded FDR file.");
             setIsLoadingFdrData(false);
+            setTimeSource(timeSources.session);
             return;
         }
 
@@ -1006,7 +1154,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     return;
                 }
 
-                const { rows, numericHeaders } = normalizeFdrRows(text);
+                const { rows, numericHeaders, timeSource: normalizedSource } =
+                    normalizeFdrRows(text);
                 if (rows.length === 0) {
                     throw new Error(
                         "The FDR file was downloaded but contained no readable rows."
@@ -1033,6 +1182,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         ? availability
                         : defaultAvailableParameters
                 );
+                setTimeSource(normalizedSource);
                 setFdrDataError("");
             })
             .catch((error) => {
@@ -1044,6 +1194,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 setParameterTableRows(defaultParameterTableRows);
                 setAvailableParameters([]);
                 setNormalizedRows(sampleNormalizedRows);
+                setTimeSource(timeSources.session);
                 const status = error?.status ? ` (status ${error.status})` : "";
                 setFdrDataError(
                     error?.message
@@ -1306,16 +1457,21 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         [allTopParameters]
     );
     const scoreTimelineData = useMemo(
-        () => buildScoreTimelineSeries(anomalyResult?.timeline),
-        [anomalyResult]
+        () => buildScoreTimelineSeries(anomalyResult?.timeline, mapTimeValue),
+        [anomalyResult, mapTimeValue]
     );
     const [showAllParameters, setShowAllParameters] = useState(false);
 
     const formatSegmentTimeRange = (segment, index) => {
         const startTime = segment?.start_time ?? segment?.startTime ?? segment?.time;
         const endTime = segment?.end_time ?? segment?.endTime ?? segment?.time;
-        const formatValue = (value) =>
-            Number.isFinite(Number(value)) ? formatSessionTime(Number(value)) : value;
+        const formatValue = (value) => {
+            if (!Number.isFinite(Number(value))) {
+                return value;
+            }
+            const formatted = formatFlightTime(mapTimeValue(Number(value)));
+            return formatted || value;
+        };
         if (startTime !== undefined && endTime !== undefined && startTime !== endTime) {
             return `${formatValue(startTime)} - ${formatValue(endTime)}`;
         }
@@ -1334,7 +1490,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         }
         const value = payload[0]?.value;
         const formattedLabel = Number.isFinite(label)
-            ? formatSessionTime(label)
+            ? formatFlightTime(label)
             : label;
         return (
             <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 shadow-sm">
@@ -1347,13 +1503,13 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         {formatNumericValue(value)}
                     </span>
                 </p>
-        {formattedLabel && (
-            <p className="mt-1 text-[11px] text-gray-500">
-                Elapsed Flight Time (Session Time from recorder): {formattedLabel}
-            </p>
-        )}
-    </div>
-);
+                {formattedLabel && (
+                    <p className="mt-1 text-[11px] text-gray-500">
+                        {timeAxisLabel}: {formattedLabel}
+                    </p>
+                )}
+            </div>
+        );
     };
 
     const mostSevereSegment = useMemo(() => {
@@ -1388,11 +1544,11 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const visibleTopParameters = showAllParameters ? allTopParameters : topParameterPreview;
 
     const resolveSegmentTimeBounds = (segment) => {
-        const startTime = Number(
-            segment?.start_time ?? segment?.startTime ?? segment?.time
+        const startTime = mapTimeValue(
+            Number(segment?.start_time ?? segment?.startTime ?? segment?.time)
         );
-        const endTime = Number(
-            segment?.end_time ?? segment?.endTime ?? segment?.time
+        const endTime = mapTimeValue(
+            Number(segment?.end_time ?? segment?.endTime ?? segment?.time)
         );
         if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
             return null;
@@ -1523,6 +1679,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     }, [
         anomalyResult,
         allTopParameters,
+        formatSegmentTimeRange,
         flaggedPercent,
         flaggedRowCount,
         mostSevereSegment,
@@ -1549,21 +1706,26 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         if (!parameter || !bounds) {
             return [];
         }
-        const lower = Math.max(0, bounds.startTime - paddingSeconds);
-        const upper = bounds.endTime + paddingSeconds;
-        return normalizedRows
-            .map((row) => ({
-                sessionTime: row.sessionTime,
-                value: row[parameter],
-            }))
-            .filter(
-                (row) =>
-                    typeof row.sessionTime === "number" &&
-                    typeof row.value === "number" &&
-                    !Number.isNaN(row.value) &&
-                    row.sessionTime >= lower &&
-                    row.sessionTime <= upper
-            );
+        const padding =
+            timeSource === timeSources.gps ? paddingSeconds * 1000 : paddingSeconds;
+        const lower = bounds.startTime - padding;
+        const upper = bounds.endTime + padding;
+        return downsampleSeries(
+            normalizedRows
+                .map((row) => ({
+                    time: row.time,
+                    value: row[parameter],
+                }))
+                .filter(
+                    (row) =>
+                        typeof row.time === "number" &&
+                        typeof row.value === "number" &&
+                        !Number.isNaN(row.value) &&
+                        row.time >= lower &&
+                        row.time <= upper
+                ),
+            maxSegmentChartPoints
+        );
     };
 
     const renderParameterCard = (parameter) => {
@@ -1572,15 +1734,15 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             unit: "",
             color: colorPalette[0],
         };
-        const chartData = truncateSeries(
+        const chartData = downsampleSeries(
             normalizedRows
                 .map((row) => ({
-                    sessionTime: row.sessionTime,
+                    time: row.time,
                     value: row[parameter],
                 }))
                 .filter(
                     (row) =>
-                        typeof row.sessionTime === "number" &&
+                        typeof row.time === "number" &&
                         typeof row.value === "number" &&
                         !Number.isNaN(row.value)
                 )
@@ -1613,18 +1775,23 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             >
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                                 <XAxis
-                                    dataKey="sessionTime"
+                                    dataKey="time"
                                     stroke="#94a3b8"
                                     minTickGap={20}
-                                    tickFormatter={formatSessionTime}
+                                    tickFormatter={formatFlightTime}
+                                    label={{
+                                        value: timeAxisLabel,
+                                        position: "insideBottom",
+                                        offset: -2,
+                                        fill: "#94a3b8",
+                                        fontSize: 11,
+                                    }}
                                 />
                                 <YAxis stroke="#94a3b8" domain={["auto", "auto"]} />
                                 <Tooltip
                                     cursor={{ stroke: "#cbd5e1" }}
                                     labelFormatter={(value) =>
-                                        `Elapsed Flight Time (Session Time from recorder): ${formatSessionTime(
-                                            value
-                                        )}`
+                                        `${timeAxisLabel}: ${formatFlightTime(value)}`
                                     }
                                 />
                                 {renderConfig.variant === "bar" ? (
@@ -2009,9 +2176,16 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             <ComposedChart data={scoreTimelineData.length ? scoreTimelineData : detectionTrendData}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                                 <XAxis
-                                    dataKey="sessionTime"
+                                    dataKey="time"
                                     stroke="#94a3b8"
-                                    tickFormatter={formatSessionTime}
+                                    tickFormatter={formatFlightTime}
+                                    label={{
+                                        value: timeAxisLabel,
+                                        position: "insideBottom",
+                                        offset: -2,
+                                        fill: "#94a3b8",
+                                        fontSize: 11,
+                                    }}
                                 />
                                 <YAxis stroke="#94a3b8" />
                                 <Tooltip content={renderScoreTooltip} />
@@ -2360,12 +2534,19 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                                                         stroke="#e5e7eb"
                                                                                     />
                                                                                     <XAxis
-                                                                                        dataKey="sessionTime"
+                                                                                        dataKey="time"
                                                                                         stroke="#94a3b8"
                                                                                         tickFormatter={
-                                                                                            formatSessionTime
+                                                                                            formatFlightTime
                                                                                         }
                                                                                         minTickGap={20}
+                                                                                        label={{
+                                                                                            value: timeAxisLabel,
+                                                                                            position: "insideBottom",
+                                                                                            offset: -2,
+                                                                                            fill: "#94a3b8",
+                                                                                            fontSize: 10,
+                                                                                        }}
                                                                                     />
                                                                                     <YAxis
                                                                                         stroke="#94a3b8"
@@ -2405,8 +2586,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                                                                         {driver.unit}
                                                                                                     </p>
                                                                                                     <p className="mt-1 text-[11px] text-gray-500">
-                                                                                                        Elapsed Flight Time (Session Time from recorder):{" "}
-                                                                                                        {formatSessionTime(
+                                                                                                        {timeAxisLabel}:{" "}
+                                                                                                        {formatFlightTime(
                                                                                                             label
                                                                                                         )}
                                                                                                     </p>
@@ -2717,7 +2898,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                             </div>
                                                             <p className="text-xs text-gray-600 break-words">
                                                                 {segment?.explanation ||
-                                                                    `Elapsed Flight Time ${timeRange}`}
+                                                                    `${timeAxisLabel}: ${timeRange}`}
                                                             </p>
                                                         </li>
                                                     );
