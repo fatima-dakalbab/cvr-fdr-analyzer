@@ -33,7 +33,8 @@ const FEATURE_TO_CSV_HEADER = MODEL_FEATURES.reduce((acc, feature) => {
 
 const TIMESTAMP_FIELDS = ['GPS Date & Time', 'Session Time', 'System Time'];
 const PYTHON_BIN = process.env.PYTHON_BIN || 'python3';
-const PYTHON_SCRIPT_PATH = path.resolve(__dirname, '../../../services/fdr_anomaly/run_detect.py');
+const PYTHON_MODULE = 'services.fdr_anomaly.run_detect';
+const PYTHON_CWD = path.resolve(__dirname, '../../..');
 const execFileAsync = promisify(execFile);
 
 const parseCsv = (text) => {
@@ -276,11 +277,23 @@ const parsePythonErrorMessage = (error) => {
 
 const runPythonDetection = async (filePath) => {
   try {
-    const { stdout } = await execFileAsync(PYTHON_BIN, [PYTHON_SCRIPT_PATH, filePath], {
-      maxBuffer: 1024 * 1024 * 10,
-    });
+    const { stdout, stderr } = await execFileAsync(
+      PYTHON_BIN,
+      ['-m', PYTHON_MODULE, filePath],
+      {
+        cwd: PYTHON_CWD,
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024 * 10,
+      },
+    );
+    if (stderr) {
+      console.error('[anomaly] python stderr:', stderr);
+    }
     return JSON.parse(stdout);
   } catch (error) {
+    if (error?.stderr) {
+      console.error('[anomaly] python stderr:', error.stderr);
+    }
     const message = parsePythonErrorMessage(error);
     if (message) {
       const pythonError = new Error(message);

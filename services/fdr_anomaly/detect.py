@@ -13,6 +13,10 @@ IFOREST_CONTAMINATION = 0.01
 SEGMENT_GAP_SECONDS = 2.0
 TOP_DRIVER_COUNT = 3
 
+VERTICAL_TOKENS = ("vertical speed", "pitch")
+LATERAL_TOKENS = ("roll", "turn rate")
+PROPULSION_TOKENS = ("rpm", "manifold pressure", "fuel flow")
+GPS_TOKENS = ("gps fix quality", "satellites")
 
 @dataclass
 class TimelineData:
@@ -101,6 +105,25 @@ def _group_segments(
     start_idx = indices[0]
     last_idx = indices[0]
 
+
+    def build_explanation(top_drivers: List[Dict[str, float]]) -> str:
+        driver_summary = ", ".join(
+            f"{driver['parameter']} (z={driver['max_robust_z']:.2f})" for driver in top_drivers
+        )
+        messages = []
+        driver_names = [driver["parameter"].lower() for driver in top_drivers]
+        if any(token in name for name in driver_names for token in VERTICAL_TOKENS):
+            messages.append("Possible unusual maneuver or vertical profile change.")
+        if any(token in name for name in driver_names for token in LATERAL_TOKENS):
+            messages.append("Possible unusual lateral maneuver.")
+        if any(token in name for name in driver_names for token in PROPULSION_TOKENS):
+            messages.append("Possible propulsion/power change.")
+        if any(token in name for name in driver_names for token in GPS_TOKENS):
+            messages.append("Possible GPS signal quality issue.")
+        if messages:
+            return f"Top drivers: {driver_summary}. " + " ".join(messages)
+        return f"Top drivers: {driver_summary}."
+
     def build_segment(segment_indices: np.ndarray) -> Dict[str, object]:
         seg_times = timestamps[segment_indices]
         seg_scores = combined_score[segment_indices]
@@ -117,6 +140,7 @@ def _group_segments(
             "points": int(segment_indices.size),
             "peak_score": float(seg_scores.max()),
             "top_drivers": top_drivers,
+            "explanation": build_explanation(top_drivers),
         }
 
     for idx in indices[1:]:
