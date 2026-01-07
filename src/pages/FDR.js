@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import {
@@ -13,7 +13,7 @@ import {
     ReferenceArea,
     ReferenceLine,
 } from "recharts";
-import { fetchCaseByNumber } from "../api/cases";
+import { fetchCaseByNumber, updateCase } from "../api/cases";
 import { runFdrAnomalyDetection } from "../api/anomaly";
 import useRecentCases from "../hooks/useRecentCases";
 import { buildCasePreview } from "../utils/caseDisplay";
@@ -275,6 +275,62 @@ const detectionTrendKeys = [
 ];
 
 const analysisLabel = "Behavioral Anomaly Detection (Unsupervised)";
+const INTERPRETATION_NOTE =
+    "Interpretation is suggestive and requires investigator review.";
+const interpretationRules = [
+    {
+        tag: "Vertical profile / maneuver",
+        keywords: [
+            "vertical speed",
+            "pitch",
+            "pressure altitude",
+            "gps altitude",
+            "vertical accel",
+        ],
+    },
+    {
+        tag: "Lateral maneuver / heading change",
+        keywords: [
+            "roll",
+            "turn rate",
+            "lateral accel",
+            "ground track",
+            "magnetic heading",
+        ],
+    },
+    {
+        tag: "Powerplant / propulsion change",
+        keywords: [
+            "rpm",
+            "manifold pressure",
+            "fuel flow",
+            "oil pressure",
+            "oil temp",
+            "cht",
+            "egt",
+        ],
+    },
+    {
+        tag: "Navigation / GPS signal quality",
+        keywords: [
+            "gps fix quality",
+            "number of satellites",
+            "mag var",
+            "cross track error",
+        ],
+    },
+    {
+        tag: "Autopilot / control activity",
+        keywords: [
+            "ap roll force",
+            "ap pitch force",
+            "ap roll position",
+            "ap pitch position",
+            "ap engaged",
+            "ap roll mode",
+        ],
+    },
+];
 
 const toNumber = (value) => {
     if (value === undefined || value === null) {
@@ -287,6 +343,41 @@ const toNumber = (value) => {
     }
 
     const numeric = Number(trimmedValue);
+    return Number.isFinite(numeric) ? numeric : null;
+};
+
+const parseSessionTime = (value) => {
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+
+    const raw = String(value).trim();
+    if (!raw) {
+        return null;
+    }
+
+    if (raw.includes(":")) {
+        const parts = raw.split(":").map((part) => Number(part));
+        if (parts.some((part) => Number.isNaN(part))) {
+            return null;
+        }
+
+        if (parts.length === 3) {
+            const [hours, minutes, seconds] = parts;
+            return hours * 3600 + minutes * 60 + seconds;
+        }
+
+        if (parts.length === 2) {
+            const [minutes, seconds] = parts;
+            return minutes * 60 + seconds;
+        }
+    }
+
+    const numeric = Number(raw);
     return Number.isFinite(numeric) ? numeric : null;
 };
 
@@ -384,10 +475,21 @@ const formatSessionTime = (value) => {
     }
 
     const seconds = Math.max(0, Math.floor(value));
-    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
     const remainingSeconds = seconds % 60;
 
-    return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+    if (hours > 0) {
+        return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+            2,
+            "0"
+        )}:${String(remainingSeconds).padStart(2, "0")}`;
+    }
+
+    return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(
+        2,
+        "0"
+    )}`;
 };
 
 const formatNumericValue = (value) => {
@@ -397,18 +499,20 @@ const formatNumericValue = (value) => {
     return Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
 };
 
-const resolveTimeLabel = (row, index) => {
-    const systemTime = row["System Time"] || row["GPS Date & Time"];
-    if (systemTime) {
-        return systemTime;
+const formatAnalysisTimestamp = (value) => {
+    if (!value) {
+        return "—";
     }
 
-    const sessionSeconds = toNumber(row["Session Time"]);
-    if (sessionSeconds !== null) {
-        return formatSessionTime(sessionSeconds);
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
     }
 
-    return `T+${index}s`;
+    return new Intl.DateTimeFormat("en-GB", {
+        dateStyle: "medium",
+        timeStyle: "short",
+    }).format(date);
 };
 
 const normalizeFdrRows = (csvText) => {
@@ -420,10 +524,11 @@ const normalizeFdrRows = (csvText) => {
     );
 
     const rows = rawRows.map((row, index) => {
-        const sessionSeconds = toNumber(row["Session Time"]);
+        const sessionSeconds = parseSessionTime(row["Session Time"]);
+        const normalizedTime = sessionSeconds !== null ? sessionSeconds : index;
         const normalized = {
-            time: resolveTimeLabel(row, index),
-            sessionTime: sessionSeconds !== null ? sessionSeconds : index,
+            time: normalizedTime,
+            sessionTime: normalizedTime,
         };
 
         numericHeaders.forEach((header) => {
@@ -436,7 +541,9 @@ const normalizeFdrRows = (csvText) => {
         return normalized;
     });
 
-    return { rows, numericHeaders };
+    const sortedRows = [...rows].sort((a, b) => a.sessionTime - b.sessionTime);
+
+    return { rows: sortedRows, numericHeaders };
 };
 
 const hasNumericValue = (row, keys) =>
@@ -494,9 +601,13 @@ const buildParameterTable = (rows, parameters) =>
 const buildDetectionTrendSeries = (rows) =>
     truncateSeries(
         rows
-            .filter((row) => row.time && hasNumericValue(row, detectionTrendKeys))
+            .filter(
+                (row) =>
+                    typeof row.sessionTime === "number" &&
+                    hasNumericValue(row, detectionTrendKeys)
+            )
             .map((row) => {
-                const entry = { time: row.time };
+                const entry = { sessionTime: row.sessionTime };
                 detectionTrendKeys.forEach((key) => {
                     if (row[key] !== undefined) {
                         entry[key] = row[key];
@@ -514,11 +625,42 @@ const buildScoreTimelineSeries = (timeline) => {
 
     const length = Math.min(timeline.time.length, timeline.score.length);
     const series = Array.from({ length }, (_, index) => ({
-        time: timeline.time[index],
+        sessionTime: Number(timeline.time[index]),
         score: timeline.score[index],
-    }));
+    }))
+        .filter((entry) => Number.isFinite(entry.sessionTime))
+        .sort((a, b) => a.sessionTime - b.sessionTime);
 
     return truncateSeries(series, 480);
+};
+
+const deriveInterpretationTags = (driverLabels = []) => {
+    const normalizedLabels = driverLabels
+        .map((label) => normalizeHeader(label))
+        .filter(Boolean);
+
+    const rankedTags = interpretationRules
+        .map((rule, index) => {
+            const matches = normalizedLabels.filter((label) =>
+                rule.keywords.some((keyword) =>
+                    label.includes(normalizeHeader(keyword))
+                )
+            );
+            return {
+                tag: rule.tag,
+                count: matches.length,
+                index,
+            };
+        })
+        .filter((entry) => entry.count > 0)
+        .sort((a, b) => {
+            if (b.count !== a.count) {
+                return b.count - a.count;
+            }
+            return a.index - b.index;
+        });
+
+    return rankedTags.slice(0, 2).map((entry) => entry.tag);
 };
 
 const summarizeSeriesProfile = (data = [], key) => {
@@ -594,6 +736,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [anomalyError, setAnomalyError] = useState("");
     const [isLoadingFdrData, setIsLoadingFdrData] = useState(false);
     const [fdrDataError, setFdrDataError] = useState("");
+    const [caseSummaryCopied, setCaseSummaryCopied] = useState(false);
+    const [analysisTimestamp, setAnalysisTimestamp] = useState(null);
     const isLinkedRoute = Boolean(caseNumber);
     const [workflowStage, setWorkflowStage] = useState(
         isLinkedRoute ? "analysis" : "caseSelection"
@@ -785,6 +929,28 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     }, [caseNumber, navigate, selectedCase, isLinkedRoute]);
 
     useEffect(() => {
+        if (!selectedCase?.source) {
+            setAnalysisTimestamp(null);
+            return;
+        }
+
+        const savedAnalysis = selectedCase?.source?.fdrAnalysis;
+        const savedTimestamp = selectedCase?.source?.fdrAnalysisUpdatedAt || null;
+
+        setAnalysisTimestamp(savedTimestamp);
+
+        if (!savedAnalysis) {
+            setAnomalyResult(null);
+            return;
+        }
+
+        setAnomalyResult(savedAnalysis);
+        setWorkflowStage((prev) =>
+            prev === "analysis" || prev === "caseSelection" ? "results" : prev
+        );
+    }, [selectedCase]);
+
+    useEffect(() => {
         const caseData = selectedCase?.source;
 
         if (!caseData) {
@@ -972,7 +1138,38 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             const result = await runFdrAnomalyDetection(caseNumber, {
                 rows: normalizedRows,
             });
-            setAnomalyResult(result);
+            const updatedAt = new Date().toISOString();
+            const normalizedResult = {
+                ...result,
+                analysis_version: result?.analysis_version || "1.0",
+            };
+            setAnomalyResult(normalizedResult);
+            setAnalysisTimestamp(updatedAt);
+            setSelectedCase((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          source: {
+                              ...prev.source,
+                              fdrAnalysis: normalizedResult,
+                              fdrAnalysisUpdatedAt: updatedAt,
+                          },
+                      }
+                    : prev
+            );
+            if (selectedCase?.source) {
+                updateCase(caseNumber, {
+                    ...selectedCase.source,
+                    fdrAnalysis: normalizedResult,
+                    fdrAnalysisUpdatedAt: updatedAt,
+                })
+                    .then((updated) => {
+                        if (updated) {
+                            setSelectedCase(buildCasePreview(updated));
+                        }
+                    })
+                    .catch(() => {});
+            }
             setWorkflowStage((prev) =>
                 prev === "analysis" ? "detectionComplete" : prev
             );
@@ -1150,13 +1347,13 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         {formatNumericValue(value)}
                     </span>
                 </p>
-                {formattedLabel && (
-                    <p className="mt-1 text-[11px] text-gray-500">
-                        Session Time: {formattedLabel}
-                    </p>
-                )}
-            </div>
-        );
+        {formattedLabel && (
+            <p className="mt-1 text-[11px] text-gray-500">
+                Elapsed Flight Time (Session Time from recorder): {formattedLabel}
+            </p>
+        )}
+    </div>
+);
     };
 
     const mostSevereSegment = useMemo(() => {
@@ -1206,26 +1403,146 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         };
     };
 
-    const resolveSegmentDrivers = (segment, limit = 3) => {
-        const drivers = Array.isArray(segment?.top_drivers)
-            ? segment.top_drivers
-            : segment?.drivers;
-        if (!Array.isArray(drivers) || drivers.length === 0) {
-            return [];
+    const resolveSegmentDrivers = useCallback(
+        (segment, limit = 3) => {
+            const drivers = Array.isArray(segment?.top_drivers)
+                ? segment.top_drivers
+                : segment?.drivers;
+            if (!Array.isArray(drivers) || drivers.length === 0) {
+                return [];
+            }
+            return drivers.slice(0, limit).map((driver) => {
+                const param = driver?.parameter || driver?.name || driver?.field || "";
+                const meta = parameterDisplayMap[param] || getParameterDisplayMeta(param);
+                const stats =
+                    segment?.driver_stats?.find((item) => item?.param === param) ||
+                    segment?.driverStats?.find((item) => item?.param === param);
+                return {
+                    param,
+                    label: meta?.label || param,
+                    unit: stats?.unit || meta?.unit || "",
+                    stats,
+                };
+            });
+        },
+        [parameterDisplayMap]
+    );
+
+    const resolveSegmentInterpretation = useCallback(
+        (segment) => {
+            const drivers = Array.isArray(segment?.top_drivers)
+                ? segment.top_drivers
+                : segment?.drivers;
+            if (!Array.isArray(drivers) || drivers.length === 0) {
+                return { tags: [], note: INTERPRETATION_NOTE };
+            }
+
+            const labels = drivers
+                .map((driver) => driver?.parameter || driver?.name || driver?.field || driver)
+                .filter(Boolean)
+                .map((param) => {
+                    const meta = parameterDisplayMap[param] || getParameterDisplayMeta(param);
+                    return meta?.label || param;
+                });
+
+            return { tags: deriveInterpretationTags(labels), note: INTERPRETATION_NOTE };
+        },
+        [parameterDisplayMap]
+    );
+
+    const caseSummary = useMemo(() => {
+        if (!anomalyResult) {
+            return null;
         }
-        return drivers.slice(0, limit).map((driver) => {
-            const param = driver?.parameter || driver?.name || driver?.field || "";
-            const meta = parameterDisplayMap[param] || getParameterDisplayMeta(param);
-            const stats =
-                segment?.driver_stats?.find((item) => item?.param === param) ||
-                segment?.driverStats?.find((item) => item?.param === param);
-            return {
-                param,
-                label: meta?.label || param,
-                unit: stats?.unit || meta?.unit || "",
-                stats,
-            };
-        });
+
+        const segmentCount =
+            anomalyResult.summary?.segments_found ??
+            anomalyResult.segments?.length ??
+            anomalyResult.anomalyCount ??
+            segments.length ??
+            0;
+        const percentValue =
+            typeof flaggedPercent === "number"
+                ? `${flaggedPercent.toFixed(1)}`
+                : "—";
+        const topParameters = allTopParameters
+            .slice(0, 3)
+            .map((item) => item.name)
+            .filter(Boolean);
+        const topParametersText =
+            topParameters.length > 0 ? topParameters.join(", ") : "No dominant parameters reported";
+
+        let severeSummary = "No severe segment identified";
+        let severeInterpretation = "unclassified behavior shifts";
+        let severeDriversText = "no dominant drivers identified";
+
+        if (mostSevereSegment?.segment) {
+            const segmentDrivers = resolveSegmentDrivers(
+                mostSevereSegment.segment,
+                3
+            ).map((driver) => driver.label);
+            severeDriversText =
+                segmentDrivers.length > 0
+                    ? segmentDrivers.join(", ")
+                    : "no dominant drivers identified";
+            severeSummary = formatSegmentTimeRange(
+                mostSevereSegment.segment,
+                mostSevereSegment.index
+            );
+            const interpretation = resolveSegmentInterpretation(
+                mostSevereSegment.segment
+            );
+            if (interpretation.tags.length > 0) {
+                severeInterpretation = interpretation.tags.join(" / ");
+            }
+        }
+
+        const paragraph = `The system flagged ${segmentCount} anomalous segments covering ${percentValue}% of the flight timeline using unsupervised behavioral deviation (autoencoder reconstruction error). The most recurrent contributing parameters were ${topParametersText}. The highest-severity interval occurred at ${severeSummary}, driven primarily by ${severeDriversText}. This pattern may indicate ${severeInterpretation}. These findings are intended to support investigation and should be reviewed alongside operational context and CVR.`;
+
+        const bullets = [
+            `Top contributing parameters: ${topParametersText}`,
+            `Flagged timeline: ${
+                typeof flaggedRowCount === "number"
+                    ? `${flaggedRowCount.toLocaleString()} rows`
+                    : "—"
+            }${
+                typeof flaggedPercent === "number"
+                    ? ` (${flaggedPercent.toFixed(1)}%)`
+                    : ""
+            }`,
+            `Most severe segment: ${severeSummary}`,
+        ];
+
+        return {
+            paragraph,
+            bullets,
+            copyText: [paragraph, "", ...bullets.map((line) => `• ${line}`)].join(
+                "\n"
+            ),
+        };
+    }, [
+        anomalyResult,
+        allTopParameters,
+        flaggedPercent,
+        flaggedRowCount,
+        mostSevereSegment,
+        resolveSegmentDrivers,
+        resolveSegmentInterpretation,
+        segments.length,
+    ]);
+
+    const handleCopyCaseSummary = async () => {
+        if (!caseSummary?.copyText) {
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(caseSummary.copyText);
+            setCaseSummaryCopied(true);
+            setTimeout(() => setCaseSummaryCopied(false), 2000);
+        } catch (_error) {
+            setCaseSummaryCopied(false);
+        }
     };
 
     const buildSegmentChartData = (parameter, bounds, paddingSeconds = 20) => {
@@ -1258,12 +1575,12 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         const chartData = truncateSeries(
             normalizedRows
                 .map((row) => ({
-                    time: row.time,
+                    sessionTime: row.sessionTime,
                     value: row[parameter],
                 }))
                 .filter(
                     (row) =>
-                        row.time &&
+                        typeof row.sessionTime === "number" &&
                         typeof row.value === "number" &&
                         !Number.isNaN(row.value)
                 )
@@ -1295,9 +1612,21 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 margin={{ top: 12, right: 16, left: 0, bottom: 0 }}
                             >
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                <XAxis dataKey="time" stroke="#94a3b8" minTickGap={20} />
+                                <XAxis
+                                    dataKey="sessionTime"
+                                    stroke="#94a3b8"
+                                    minTickGap={20}
+                                    tickFormatter={formatSessionTime}
+                                />
                                 <YAxis stroke="#94a3b8" domain={["auto", "auto"]} />
-                                <Tooltip cursor={{ stroke: "#cbd5e1" }} />
+                                <Tooltip
+                                    cursor={{ stroke: "#cbd5e1" }}
+                                    labelFormatter={(value) =>
+                                        `Elapsed Flight Time (Session Time from recorder): ${formatSessionTime(
+                                            value
+                                        )}`
+                                    }
+                                />
                                 {renderConfig.variant === "bar" ? (
                                     <Bar
                                         dataKey="value"
@@ -1493,6 +1822,102 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         );
     }
 
+    if (workflowStage === "export") {
+        if (!anomalyResult) {
+            return (
+                <div className="max-w-4xl mx-auto flex flex-col items-center justify-center py-24 text-center space-y-4">
+                    <div className="rounded-full bg-emerald-50 p-4 text-emerald-600">
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            className="h-10 w-10"
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
+                            <circle cx="12" cy="12" r="9" />
+                        </svg>
+                    </div>
+                    <h2 className="text-2xl font-semibold text-gray-900">
+                        Export summary unavailable
+                    </h2>
+                    <p className="text-sm text-gray-600 max-w-md">
+                        Run anomaly detection for this case to populate the export summary.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => setWorkflowStage("analysis")}
+                        className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm"
+                    >
+                        Back to data overview
+                    </button>
+                </div>
+            );
+        }
+
+        return (
+            <div className="max-w-5xl mx-auto space-y-6">
+                <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+                    <div>
+                        <p className="text-sm uppercase tracking-[0.4em] text-emerald-500">
+                            FDR Module
+                        </p>
+                        <h1 className="text-3xl font-bold text-gray-900">Export Report</h1>
+                        <p className="text-gray-600">
+                            Report-ready summary for {selectedCase?.id} · {selectedCase?.title}
+                        </p>
+                        {analysisTimestamp && (
+                            <p className="mt-2 text-xs text-gray-500">
+                                Last analyzed: {formatAnalysisTimestamp(analysisTimestamp)}
+                            </p>
+                        )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setWorkflowStage("results")}
+                            className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:border-emerald-200 hover:text-emerald-600"
+                        >
+                            Back to results
+                        </button>
+                    </div>
+                </header>
+
+                {caseSummary && (
+                    <section className="rounded-3xl bg-white p-6 border border-gray-200">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-gray-900">
+                                    Case Summary
+                                </h2>
+                                <p className="text-sm text-gray-500">
+                                    Copy-ready narrative for export.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleCopyCaseSummary}
+                                className="inline-flex items-center justify-center rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                            >
+                                {caseSummaryCopied ? "Copied" : "Copy"}
+                            </button>
+                        </div>
+                        <p className="mt-4 text-sm text-gray-700">{caseSummary.paragraph}</p>
+                        <ul className="mt-4 space-y-1 text-sm text-gray-700">
+                            {caseSummary.bullets.map((item) => (
+                                <li key={item} className="flex items-start gap-2">
+                                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                    <span>{item}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                )}
+            </div>
+        );
+    }
+
     if (workflowStage === "results") {
         if (!anomalyResult) {
             return (
@@ -1544,6 +1969,11 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
                             {analysisTitle}
                         </div>
+                        {analysisTimestamp && (
+                            <p className="mt-2 text-xs text-gray-500">
+                                Last analyzed: {formatAnalysisTimestamp(analysisTimestamp)}
+                            </p>
+                        )}
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                         <button
@@ -1555,6 +1985,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         </button>
                         <button
                             type="button"
+                            onClick={() => setWorkflowStage("export")}
                             className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm"
                         >
                             Export Report
@@ -1577,7 +2008,11 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         <ResponsiveContainer width="100%" height="100%">
                             <ComposedChart data={scoreTimelineData.length ? scoreTimelineData : detectionTrendData}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                <XAxis dataKey="time" stroke="#94a3b8" />
+                                <XAxis
+                                    dataKey="sessionTime"
+                                    stroke="#94a3b8"
+                                    tickFormatter={formatSessionTime}
+                                />
                                 <YAxis stroke="#94a3b8" />
                                 <Tooltip content={renderScoreTooltip} />
                                 {Number.isFinite(detectionThresholdValue) && (
@@ -1752,6 +2187,37 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     </div>
                 </section>
 
+                {caseSummary && (
+                    <section className="rounded-3xl bg-white p-6 border border-gray-200">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <h2 className="text-lg font-semibold text-gray-900">
+                                    Case Summary
+                                </h2>
+                                <p className="text-sm text-gray-500">
+                                    Report-ready narrative derived from the latest analysis.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleCopyCaseSummary}
+                                className="inline-flex items-center justify-center rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                            >
+                                {caseSummaryCopied ? "Copied" : "Copy"}
+                            </button>
+                        </div>
+                        <p className="mt-4 text-sm text-gray-700">{caseSummary.paragraph}</p>
+                        <ul className="mt-4 space-y-1 text-sm text-gray-700">
+                            {caseSummary.bullets.map((item) => (
+                                <li key={item} className="flex items-start gap-2">
+                                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                    <span>{item}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                )}
+
                 <section className="rounded-3xl bg-white p-6 border border-gray-200">
                     <div className="flex items-center justify-between mb-4">
                         <div>
@@ -1778,6 +2244,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 const timeRange = formatSegmentTimeRange(segment, index);
                                 const severity = formatSeverityLabel(segment?.severity);
                                 const timeBounds = resolveSegmentTimeBounds(segment);
+                                const interpretation = resolveSegmentInterpretation(segment);
 
                                 return (
                                     <div
@@ -1803,6 +2270,14 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                               .join(", ")
                                                         : "No drivers reported."}
                                                 </p>
+                                                {interpretation.tags.length > 0 && (
+                                                    <p className="text-xs text-gray-500">
+                                                        Possible interpretation:{" "}
+                                                        <span className="font-semibold text-gray-700">
+                                                            {interpretation.tags.join(" · ")}
+                                                        </span>
+                                                    </p>
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-3">
                                                 <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50">
@@ -1820,6 +2295,30 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                     Evidence Panel: zoomed to segment window with anomaly
                                                     markers.
                                                 </p>
+                                                <div className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <span className="font-semibold text-emerald-700">
+                                                            Possible interpretation
+                                                        </span>
+                                                        {interpretation.tags.length > 0 ? (
+                                                            interpretation.tags.map((tag) => (
+                                                                <span
+                                                                    key={tag}
+                                                                    className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-emerald-700"
+                                                                >
+                                                                    {tag}
+                                                                </span>
+                                                            ))
+                                                        ) : (
+                                                            <span className="text-[11px] text-emerald-700">
+                                                                No rule-based match
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="mt-1 text-[11px] text-emerald-700">
+                                                        {interpretation.note}
+                                                    </p>
+                                                </div>
                                                 <div className="grid gap-4 lg:grid-cols-3">
                                                     {topDrivers.length > 0 ? (
                                                         topDrivers.map((driver) => {
@@ -1906,7 +2405,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                                                                         {driver.unit}
                                                                                                     </p>
                                                                                                     <p className="mt-1 text-[11px] text-gray-500">
-                                                                                                        Session Time:{" "}
+                                                                                                        Elapsed Flight Time (Session Time from recorder):{" "}
                                                                                                         {formatSessionTime(
                                                                                                             label
                                                                                                         )}
@@ -2114,6 +2613,11 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                     {analysisTitle}
                 </div>
+                {analysisTimestamp && (
+                    <div className="text-xs text-gray-500">
+                        Last analyzed: {formatAnalysisTimestamp(analysisTimestamp)}
+                    </div>
+                )}
 
                 {anomalyError && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -2190,21 +2694,15 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                         {segments.length > 0 ? (
                                             <ul className="space-y-2">
                                                 {segments.slice(0, 5).map((segment, index) => {
-                                                    const startTime =
-                                                        segment?.start_time ??
-                                                        segment?.startTime ??
-                                                        segment?.time ??
-                                                        index + 1;
-                                                    const endTime =
-                                                        segment?.end_time ??
-                                                        segment?.endTime ??
-                                                        segment?.time ??
-                                                        startTime;
                                                     const severity = segment?.severity || "low";
+                                                    const timeRange = formatSegmentTimeRange(
+                                                        segment,
+                                                        index
+                                                    );
 
                                                     return (
                                                         <li
-                                                            key={`${startTime}-${endTime}-${index}`}
+                                                            key={`${timeRange}-${index}`}
                                                             className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1"
                                                         >
                                                             <div className="flex items-center justify-between">
@@ -2219,7 +2717,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                             </div>
                                                             <p className="text-xs text-gray-600 break-words">
                                                                 {segment?.explanation ||
-                                                                    `Time ${startTime} - ${endTime}`}
+                                                                    `Elapsed Flight Time ${timeRange}`}
                                                             </p>
                                                         </li>
                                                     );

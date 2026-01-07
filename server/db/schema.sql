@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS cases (
     occurrence_date DATE,
     tags TEXT[] DEFAULT ARRAY[]::TEXT[],
     analyses JSONB NOT NULL DEFAULT '{}',
+    fdr_analysis JSONB,
+    fdr_analysis_updated_at TIMESTAMPTZ,
     timeline JSONB NOT NULL DEFAULT '[]',
     attachments JSONB NOT NULL DEFAULT '[]',
     investigator JSONB NOT NULL DEFAULT '{}',
@@ -58,6 +60,12 @@ ALTER TABLE cases
 
 ALTER TABLE cases
     ADD COLUMN IF NOT EXISTS analyses JSONB NOT NULL DEFAULT '{}'::JSONB;
+
+ALTER TABLE cases
+    ADD COLUMN IF NOT EXISTS fdr_analysis JSONB;
+
+ALTER TABLE cases
+    ADD COLUMN IF NOT EXISTS fdr_analysis_updated_at TIMESTAMPTZ;
 
 ALTER TABLE cases
     ADD COLUMN IF NOT EXISTS timeline JSONB NOT NULL DEFAULT '[]'::JSONB;
