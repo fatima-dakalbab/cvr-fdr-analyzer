@@ -9,7 +9,6 @@ import {
     YAxis,
     Tooltip,
     Line,
-    Bar,
     ReferenceArea,
     ReferenceLine,
 } from "recharts";
@@ -387,30 +386,6 @@ const parseSessionTime = (value) => {
     return Number.isFinite(numeric) ? numeric : null;
 };
 
-const parseGpsDateTime = (value) => {
-    if (value === null || value === undefined) {
-        return null;
-    }
-
-    if (typeof value === "number" && Number.isFinite(value)) {
-        if (value > 1e12) {
-            return value;
-        }
-        if (value > 1e9) {
-            return value * 1000;
-        }
-        return null;
-    }
-
-    const raw = String(value).trim();
-    if (!raw) {
-        return null;
-    }
-
-    const parsed = Date.parse(raw);
-    return Number.isNaN(parsed) ? null : parsed;
-};
-
 const getKnownParameterMatch = (header = "") => {
     const normalized = normalizeHeader(header);
     return (
@@ -522,24 +497,6 @@ const formatSessionTime = (value) => {
     )}`;
 };
 
-const formatUtcTime = (value) => {
-    if (value === null || value === undefined) {
-        return "";
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return "";
-    }
-
-    return new Intl.DateTimeFormat("en-GB", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        timeZone: "UTC",
-    }).format(date);
-};
-
 const formatNumericValue = (value) => {
     if (!Number.isFinite(value)) {
         return "—";
@@ -563,18 +520,6 @@ const formatAnalysisTimestamp = (value) => {
     }).format(date);
 };
 
-const resolveTimeSource = (rows) => {
-    const hasSessionTime = rows.some((row) => parseSessionTime(row["Session Time"]) !== null);
-    if (hasSessionTime) {
-        return timeSources.session;
-    }
-    const hasGpsTime = rows.some((row) => parseGpsDateTime(row["GPS Date & Time"]) !== null);
-    if (hasGpsTime) {
-        return timeSources.gps;
-    }
-    return timeSources.index;
-};
-
 const normalizeFdrRows = (csvText) => {
     const { headers, rows: rawRows } = parseCsvRows(csvText);
     const numericHeaders = headers.filter(
@@ -582,20 +527,15 @@ const normalizeFdrRows = (csvText) => {
             !isExcludedTimeColumn(header) &&
             rawRows.some((row) => toNumber(row[header]) !== null)
     );
-    const timeSource = resolveTimeSource(rawRows);
+    const timeSource = timeSources.session;
 
     const rows = rawRows.map((row, index) => {
         const sessionSeconds = parseSessionTime(row["Session Time"]);
-        const gpsTimestamp = parseGpsDateTime(row["GPS Date & Time"]);
         let normalizedTime = index;
-        if (timeSource === timeSources.session) {
-            normalizedTime = sessionSeconds !== null ? sessionSeconds : index;
-        } else if (timeSource === timeSources.gps) {
-            normalizedTime = gpsTimestamp !== null ? gpsTimestamp : index;
-        }
+        normalizedTime = sessionSeconds !== null ? sessionSeconds : index;
         const normalized = {
             time: normalizedTime,
-            sessionTime: timeSource === timeSources.session ? normalizedTime : null,
+            sessionTime: normalizedTime,
             rowIndex: index,
         };
 
@@ -621,13 +561,40 @@ const downsampleSeries = (series, maxPoints = maxChartPoints) => {
     if (series.length <= maxPoints) {
         return series;
     }
-    const step = Math.ceil(series.length / maxPoints);
+    const bucketSize = Math.ceil(series.length / maxPoints);
     const sampled = [];
-    for (let i = 0; i < series.length; i += step) {
-        sampled.push(series[i]);
-    }
-    if (sampled[sampled.length - 1] !== series[series.length - 1]) {
-        sampled.push(series[series.length - 1]);
+    for (let i = 0; i < series.length; i += bucketSize) {
+        const bucket = series.slice(i, i + bucketSize);
+        if (!bucket.length) {
+            continue;
+        }
+        const sums = {};
+        const counts = {};
+        let timeSum = 0;
+        let timeCount = 0;
+        bucket.forEach((point) => {
+            if (Number.isFinite(point.time)) {
+                timeSum += point.time;
+                timeCount += 1;
+            }
+            Object.entries(point).forEach(([key, value]) => {
+                if (key === "time") {
+                    return;
+                }
+                if (typeof value === "number" && !Number.isNaN(value)) {
+                    sums[key] = (sums[key] || 0) + value;
+                    counts[key] = (counts[key] || 0) + 1;
+                }
+            });
+        });
+        if (!timeCount) {
+            continue;
+        }
+        const averaged = { time: timeSum / timeCount };
+        Object.keys(sums).forEach((key) => {
+            averaged[key] = sums[key] / counts[key];
+        });
+        sampled.push(averaged);
     }
     return sampled;
 };
@@ -773,16 +740,7 @@ const summarizeSeriesProfile = (data = [], key) => {
 };
 
 const getSeriesRenderConfig = (data = [], key) => {
-    const profile = summarizeSeriesProfile(data, key);
-
-    if (profile.isBinary) {
-        return { variant: "line", lineType: "stepAfter" };
-    }
-
-    if (profile.isLowCardinality) {
-        return { variant: "bar" };
-    }
-
+    summarizeSeriesProfile(data, key);
     return { variant: "line", lineType: "monotone" };
 };
 
@@ -815,7 +773,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         defaultAvailableParameters
     );
     const [normalizedRows, setNormalizedRows] = useState(sampleNormalizedRows);
-    const [timeSource, setTimeSource] = useState(timeSources.session);
     const [chartFilterText, setChartFilterText] = useState("");
     const [expandedGroups, setExpandedGroups] = useState(() => new Set());
     const [expandedSegments, setExpandedSegments] = useState(() => new Set());
@@ -904,6 +861,13 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         return groups.filter((group) => group.parameters.length > 0);
     }, [filteredParameters, parameterDisplayMap]);
+    const analyzedParameters = useMemo(() => {
+        const labels = (availableParameters || []).map((parameter) => {
+            const meta = parameterDisplayMap[parameter];
+            return meta?.label || parameter;
+        });
+        return Array.from(new Set(labels));
+    }, [availableParameters, parameterDisplayMap]);
     const segments = useMemo(() => {
         if (!anomalyResult) {
             return [];
@@ -919,29 +883,15 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         return Array.isArray(list) ? list : [];
     }, [anomalyResult]);
     const analysisTitle = analysisLabel;
-    const timeAxisLabel = useMemo(() => {
-        if (timeSource === timeSources.session) {
-            return "Flight Time (Session Time)";
-        }
-        if (timeSource === timeSources.gps) {
-            return "Flight Time (UTC)";
-        }
-        return "Flight Time";
-    }, [timeSource]);
+    const timeAxisLabel = "Session Time";
     const formatFlightTime = useCallback(
         (value) => {
             if (!Number.isFinite(value)) {
                 return "";
             }
-            if (timeSource === timeSources.gps) {
-                return formatUtcTime(value);
-            }
-            if (timeSource === timeSources.session) {
-                return formatSessionTime(value);
-            }
-            return String(value);
+            return formatSessionTime(value);
         },
-        [timeSource]
+        []
     );
     const timeDomain = useMemo(() => {
         const values = normalizedRows
@@ -1105,7 +1055,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             setAvailableParameters(defaultAvailableParameters);
             setFdrDataError("");
             setIsLoadingFdrData(false);
-            setTimeSource(timeSources.session);
             return;
         }
 
@@ -1134,7 +1083,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             setNormalizedRows(sampleNormalizedRows);
             setFdrDataError("The selected case does not include an uploaded FDR file.");
             setIsLoadingFdrData(false);
-            setTimeSource(timeSources.session);
             return;
         }
 
@@ -1154,8 +1102,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     return;
                 }
 
-                const { rows, numericHeaders, timeSource: normalizedSource } =
-                    normalizeFdrRows(text);
+                const { rows, numericHeaders } = normalizeFdrRows(text);
                 if (rows.length === 0) {
                     throw new Error(
                         "The FDR file was downloaded but contained no readable rows."
@@ -1182,7 +1129,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         ? availability
                         : defaultAvailableParameters
                 );
-                setTimeSource(normalizedSource);
                 setFdrDataError("");
             })
             .catch((error) => {
@@ -1194,7 +1140,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 setParameterTableRows(defaultParameterTableRows);
                 setAvailableParameters([]);
                 setNormalizedRows(sampleNormalizedRows);
-                setTimeSource(timeSources.session);
                 const status = error?.status ? ` (status ${error.status})` : "";
                 setFdrDataError(
                     error?.message
@@ -1484,6 +1429,21 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         const text = String(value);
         return text.charAt(0).toUpperCase() + text.slice(1);
     };
+    const spikeThreshold = useMemo(() => {
+        if (!scoreTimelineData.length) {
+            return null;
+        }
+        const values = scoreTimelineData
+            .map((entry) => entry?.score)
+            .filter((value) => typeof value === "number" && !Number.isNaN(value))
+            .sort((a, b) => a - b);
+        if (values.length < 3) {
+            return null;
+        }
+        const index = Math.max(0, Math.floor((values.length - 1) * 0.98));
+        return values[index];
+    }, [scoreTimelineData]);
+
     const renderScoreTooltip = ({ active, payload, label }) => {
         if (!active || !payload || payload.length === 0) {
             return null;
@@ -1492,17 +1452,28 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         const formattedLabel = Number.isFinite(label)
             ? formatFlightTime(label)
             : label;
+        const showSpikeCallout =
+            Number.isFinite(spikeThreshold) &&
+            Number.isFinite(value) &&
+            scoreTimelineData.length > 0 &&
+            value >= spikeThreshold;
         return (
             <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 shadow-sm">
                 <p className="font-semibold text-gray-800">
                     Behavioral Deviation Score (autoencoder reconstruction error)
                 </p>
                 <p className="mt-1">
-                    Higher = more deviation.{" "}
+                    Higher values indicate stronger deviation from learned normal behavior (not probability).{" "}
                     <span className="font-semibold text-gray-900">
                         {formatNumericValue(value)}
                     </span>
                 </p>
+                {showSpikeCallout && (
+                    <p className="mt-1 text-[11px] text-amber-600">
+                        Large spikes indicate behavior far outside learned normal patterns (e.g., operational mode change,
+                        sensor discontinuity, or abnormal event).
+                    </p>
+                )}
                 {formattedLabel && (
                     <p className="mt-1 text-[11px] text-gray-500">
                         {timeAxisLabel}: {formattedLabel}
@@ -1556,6 +1527,20 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         return {
             startTime: Math.min(startTime, endTime),
             endTime: Math.max(startTime, endTime),
+        };
+    };
+    const segmentPaddingSeconds = 20;
+    const resolveSegmentWindowBounds = (segment, paddingSeconds = segmentPaddingSeconds) => {
+        const bounds = resolveSegmentTimeBounds(segment);
+        if (!bounds) {
+            return null;
+        }
+        const padding = paddingSeconds;
+        return {
+            windowStart: bounds.startTime - padding,
+            windowEnd: bounds.endTime + padding,
+            anomalyStart: bounds.startTime,
+            anomalyEnd: bounds.endTime,
         };
     };
 
@@ -1702,12 +1687,15 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         }
     };
 
-    const buildSegmentChartData = (parameter, bounds, paddingSeconds = 20) => {
+    const buildSegmentChartData = (
+        parameter,
+        bounds,
+        paddingSeconds = segmentPaddingSeconds
+    ) => {
         if (!parameter || !bounds) {
             return [];
         }
-        const padding =
-            timeSource === timeSources.gps ? paddingSeconds * 1000 : paddingSeconds;
+        const padding = paddingSeconds;
         const lower = bounds.startTime - padding;
         const upper = bounds.endTime + padding;
         return downsampleSeries(
@@ -1794,26 +1782,16 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                         `${timeAxisLabel}: ${formatFlightTime(value)}`
                                     }
                                 />
-                                {renderConfig.variant === "bar" ? (
-                                    <Bar
-                                        dataKey="value"
-                                        name={meta.label || parameter}
-                                        fill={meta.color}
-                                        barSize={18}
-                                        isAnimationActive={false}
-                                    />
-                                ) : (
-                                    <Line
-                                        type={renderConfig.lineType || "monotone"}
-                                        dataKey="value"
-                                        name={meta.label || parameter}
-                                        stroke={meta.color}
-                                        strokeWidth={2}
-                                        dot={false}
-                                        connectNulls
-                                        isAnimationActive={false}
-                                    />
-                                )}
+                                <Line
+                                    type={renderConfig.lineType || "monotone"}
+                                    dataKey="value"
+                                    name={meta.label || parameter}
+                                    stroke={meta.color}
+                                    strokeWidth={1.5}
+                                    dot={false}
+                                    connectNulls
+                                    isAnimationActive={false}
+                                />
                             </ComposedChart>
                         </ResponsiveContainer>
                     </div>
@@ -2081,6 +2059,87 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         </ul>
                     </section>
                 )}
+
+                <section className="rounded-3xl bg-white p-6 border border-gray-200 space-y-5">
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-900">
+                            Analysis Details
+                        </h2>
+                        <p className="text-sm text-gray-500">
+                            Investigator-ready overview of parameters and segment attribution.
+                        </p>
+                    </div>
+                    <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">
+                            Parameters analyzed
+                        </p>
+                        {analyzedParameters.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                                {analyzedParameters.map((parameter) => (
+                                    <span
+                                        key={parameter}
+                                        className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"
+                                    >
+                                        {parameter}
+                                    </span>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="mt-2 text-sm text-gray-500">No parameters listed.</p>
+                        )}
+                    </div>
+                    <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">
+                            Top contributing parameters
+                        </p>
+                        {topParameterPreview.length > 0 ? (
+                            <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                                {topParameterPreview.map((item) => (
+                                    <li
+                                        key={`${item.name}-${item.count}`}
+                                        className="flex items-center justify-between"
+                                    >
+                                        <span className="font-medium">{item.name}</span>
+                                        <span className="text-xs text-gray-500">
+                                            {item.count} {item.count === 1 ? "segment" : "segments"}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p className="mt-2 text-sm text-gray-500">
+                                No contributing parameters reported.
+                            </p>
+                        )}
+                    </div>
+                    <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">
+                            Segment counts per parameter
+                        </p>
+                        {allTopParameters.length > 0 ? (
+                            <div className="mt-2 grid gap-2 md:grid-cols-2">
+                                {allTopParameters.map((item) => (
+                                    <div
+                                        key={`${item.name}-${item.count}-count`}
+                                        className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700"
+                                    >
+                                        <span>{item.name}</span>
+                                        <span className="font-semibold text-gray-900">
+                                            {item.count}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="mt-2 text-sm text-gray-500">
+                                Segment counts not available for this run.
+                            </p>
+                        )}
+                    </div>
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        Unsupervised behavioral anomaly detection; results are suggestive and require investigator review.
+                    </div>
+                </section>
             </div>
         );
     }
@@ -2195,7 +2254,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                         stroke="#f97316"
                                         strokeDasharray="6 4"
                                         label={{
-                                            value: "Detection Threshold",
+                                            value:
+                                                "Anomaly threshold (derived from baseline distribution)",
                                             position: "right",
                                             fill: "#f97316",
                                             fontSize: 11,
@@ -2206,7 +2266,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                     type="monotone"
                                     dataKey={scoreTimelineData.length ? "score" : "AIRSPEED"}
                                     stroke="#38bdf8"
-                                    strokeWidth={3}
+                                    strokeWidth={2}
                                     dot={false}
                                     name={
                                         scoreTimelineData.length
@@ -2218,7 +2278,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         </ResponsiveContainer>
                     </div>
                     <p className="mt-3 text-xs text-gray-500">
-                        Higher values indicate stronger deviation from learned normal behavior (not a probability).
+                        The dashed line marks the anomaly threshold derived from the baseline distribution; higher values
+                        reflect stronger deviation from learned normal behavior (not probability).
                     </p>
                 </section>
 
@@ -2418,6 +2479,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 const timeRange = formatSegmentTimeRange(segment, index);
                                 const severity = formatSeverityLabel(segment?.severity);
                                 const timeBounds = resolveSegmentTimeBounds(segment);
+                                const windowBounds = resolveSegmentWindowBounds(segment);
                                 const interpretation = resolveSegmentInterpretation(segment);
 
                                 return (
@@ -2467,7 +2529,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                             <div className="border-t border-gray-100 bg-gray-50/70 px-4 py-4">
                                                 <p className="text-xs text-gray-500 mb-4">
                                                     Evidence Panel: zoomed to segment window with anomaly
-                                                    markers.
+                                                    interval highlights.
                                                 </p>
                                                 <div className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
                                                     <div className="flex flex-wrap items-center gap-2">
@@ -2552,6 +2614,15 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                                                         stroke="#94a3b8"
                                                                                         domain={["auto", "auto"]}
                                                                                     />
+                                                                                    {windowBounds && (
+                                                                                        <ReferenceArea
+                                                                                            x1={windowBounds.windowStart}
+                                                                                            x2={windowBounds.windowEnd}
+                                                                                            fill="#dbeafe"
+                                                                                            stroke="#60a5fa"
+                                                                                            strokeOpacity={0.4}
+                                                                                        />
+                                                                                    )}
                                                                                     {timeBounds && (
                                                                                         <ReferenceArea
                                                                                             x1={timeBounds.startTime}
@@ -2599,7 +2670,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                                                                         type="monotone"
                                                                                         dataKey="value"
                                                                                         stroke="#0ea5e9"
-                                                                                        strokeWidth={2}
+                                                                                        strokeWidth={1.5}
                                                                                         dot={false}
                                                                                         connectNulls
                                                                                         isAnimationActive={false}
@@ -2810,9 +2881,14 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     <div className="rounded-lg border border-gray-200 bg-white/60 p-4 space-y-3">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm font-semibold text-gray-800">Detection Summary</p>
+                                <p className="text-sm font-semibold text-gray-800">
+                                    Latest Analysis Results (read-only)
+                                </p>
                                 <p className="text-xs text-gray-500">
                                     Latest run for {selectedCase?.id || caseNumber || "current case"}
+                                    {analysisTimestamp
+                                        ? ` · ${formatAnalysisTimestamp(analysisTimestamp)}`
+                                        : ""}
                                 </p>
                             </div>
                             {isRunningDetection && (
