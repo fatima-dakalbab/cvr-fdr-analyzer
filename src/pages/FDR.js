@@ -1039,10 +1039,9 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         return Array.from(counts.entries())
             .filter(([, count]) => count > 0)
             .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
             .map(([name, count]) => ({ name, count }));
     }, [anomalyResult, segments]);
-    const displayedTopParameters = useMemo(() => {
+    const allTopParameters = useMemo(() => {
         const providedTopParameters =
             anomalyResult?.summary?.top_parameters ||
             anomalyResult?.topParameters ||
@@ -1073,10 +1072,60 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         return topAnomalyParameters;
     }, [anomalyResult, topAnomalyParameters]);
+    const topParameterPreview = useMemo(
+        () => allTopParameters.slice(0, 5),
+        [allTopParameters]
+    );
     const scoreTimelineData = useMemo(
         () => buildScoreTimelineSeries(anomalyResult?.timeline),
         [anomalyResult]
     );
+    const [showAllParameters, setShowAllParameters] = useState(false);
+
+    const formatSegmentTimeRange = (segment, index) => {
+        const startTime = segment?.start_time ?? segment?.startTime ?? segment?.time;
+        const endTime = segment?.end_time ?? segment?.endTime ?? segment?.time;
+        if (startTime !== undefined && endTime !== undefined && startTime !== endTime) {
+            return `${startTime} - ${endTime}`;
+        }
+        return startTime ?? endTime ?? `Segment ${index + 1}`;
+    };
+    const formatSeverityLabel = (value) => {
+        if (!value) {
+            return "—";
+        }
+        const text = String(value);
+        return text.charAt(0).toUpperCase() + text.slice(1);
+    };
+
+    const mostSevereSegment = useMemo(() => {
+        if (!segments.length) {
+            return null;
+        }
+
+        return segments.reduce((current, segment, index) => {
+            const score = Number(
+                segment?.score_peak ?? segment?.scorePeak ?? segment?.score ?? segment?.max_score
+            );
+            if (!Number.isFinite(score)) {
+                return current;
+            }
+            if (!current || score > current.score) {
+                return { segment, score, index };
+            }
+            return current;
+        }, null);
+    }, [segments]);
+    const detectionSummary = anomalyResult?.summary ?? {};
+    const detectionWindowSize =
+        detectionSummary.window_size ?? detectionSummary.windowSize ?? null;
+    const detectionStride =
+        detectionSummary.stride ?? detectionSummary.window_stride ?? detectionSummary.windowStride ?? null;
+    const detectionThresholdPercentile =
+        detectionSummary.threshold_percentile ?? detectionSummary.thresholdPercentile ?? null;
+    const detectionParamsUsed =
+        detectionSummary.n_params_used ?? detectionSummary.nParamsUsed ?? null;
+    const visibleTopParameters = showAllParameters ? allTopParameters : topParameterPreview;
 
     const renderSegmentDrivers = (segment) => {
         const drivers = Array.isArray(segment?.top_drivers)
@@ -1095,12 +1144,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         () =>
             segments.slice(0, 10).map((segment, index) => {
                 const topDrivers = renderSegmentDrivers(segment);
-                const startTime = segment?.start_time ?? segment?.startTime ?? segment?.time;
-                const endTime = segment?.end_time ?? segment?.endTime ?? segment?.time;
-                const timestamp =
-                    startTime !== undefined && endTime !== undefined && startTime !== endTime
-                        ? `${startTime} - ${endTime}`
-                        : startTime ?? endTime ?? `Segment ${index + 1}`;
+                const timestamp = formatSegmentTimeRange(segment, index);
                 const severity = segment?.severity || "low";
 
                 return {
@@ -1391,7 +1435,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         }
 
         const totalEvents =
-            displayedTopParameters.reduce((sum, item) => sum + (item?.count || 0), 0) || 1;
+            allTopParameters.reduce((sum, item) => sum + (item?.count || 0), 0) || 1;
 
         return (
             <div className="max-w-7xl mx-auto space-y-6">
@@ -1465,67 +1509,84 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             Unified highlights for the latest Behavioral Anomaly Detection run.
                         </p>
                     </div>
-                    <div className="grid gap-4 md:grid-cols-3">
-                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
+                    <div className="grid items-stretch gap-4 md:grid-cols-3">
+                        <div className="flex h-full flex-col rounded-3xl bg-white p-4 border border-gray-200">
                             <p className="text-xs uppercase tracking-wide text-gray-500">
-                                Segments flagged
+                                Overview
                             </p>
-                            <p className="mt-3 text-3xl font-bold text-gray-900">
-                                {typeof anomalyCount === "number" ? anomalyCount.toLocaleString() : "—"}
-                            </p>
-                            <p className="mt-2 text-sm text-gray-500">
-                                {typeof totalRows === "number"
-                                    ? `${totalRows.toLocaleString()} total rows reviewed`
-                                    : "Total rows unavailable"}
-                            </p>
-                        </div>
-
-                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
-                            <p className="text-xs uppercase tracking-wide text-gray-500">
-                                Flagged flight timeline
-                            </p>
-                            <div className="mt-4 flex items-center gap-4">
-                                <div className="relative">
-                                    <div className="h-24 w-24 rounded-full border-[10px] border-emerald-100" />
-                                    <div className="absolute inset-2 flex flex-col items-center justify-center rounded-full bg-white">
-                                        <span className="text-xl font-bold text-emerald-600">
-                                            {typeof flaggedPercent === "number"
-                                                ? flaggedPercent.toFixed(1)
-                                                : "—"}
-                                        </span>
-                                        <span className="text-[10px] uppercase tracking-wide text-gray-500">
-                                            %
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="space-y-1 text-sm text-gray-600">
-                                    <p>
-                                        {typeof flaggedRowCount === "number"
-                                            ? `${flaggedRowCount.toLocaleString()} rows flagged`
-                                            : "Rows flagged unavailable"}
+                            <div className="mt-3 grid gap-3 text-sm text-gray-700">
+                                <div>
+                                    <p className="text-xs text-gray-500">Segments found</p>
+                                    <p className="text-xl font-semibold text-gray-900">
+                                        {typeof anomalyCount === "number"
+                                            ? anomalyCount.toLocaleString()
+                                            : "—"}
                                     </p>
-                                    <p className="text-xs text-gray-500">
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-500">Flagged rows</p>
+                                    <p className="text-sm font-semibold text-gray-900">
+                                        {typeof flaggedRowCount === "number"
+                                            ? `${flaggedRowCount.toLocaleString()} rows`
+                                            : "—"}
+                                        {typeof flaggedPercent === "number"
+                                            ? ` · ${flaggedPercent.toFixed(1)}%`
+                                            : ""}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-500">Total rows reviewed</p>
+                                    <p className="text-sm font-semibold text-gray-900">
                                         {typeof totalRows === "number"
-                                            ? `Out of ${totalRows.toLocaleString()} total rows`
-                                            : "Total rows unavailable"}
+                                            ? totalRows.toLocaleString()
+                                            : "—"}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-500">Most severe segment</p>
+                                    <p className="text-sm font-semibold text-gray-900">
+                                        {mostSevereSegment
+                                            ? `${formatSegmentTimeRange(
+                                                  mostSevereSegment.segment,
+                                                  mostSevereSegment.index
+                                              )} · ${formatSeverityLabel(
+                                                  mostSevereSegment.segment?.severity
+                                              )}`
+                                            : "—"}
                                     </p>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="rounded-3xl bg-white p-6 border border-gray-200">
-                            <h3 className="text-sm font-semibold text-gray-900">
-                                Top contributing parameters
-                            </h3>
-                            <p className="mt-1 text-sm text-gray-500">
-                                Parameters most frequently contributing to flagged segments.
-                            </p>
-                            <div className="mt-4 space-y-3">
-                                {displayedTopParameters.length > 0 ? (
-                                    displayedTopParameters.map((item) => (
-                                        <div key={item.name} className="flex items-center justify-between">
+                        <div className="flex h-full flex-col rounded-3xl bg-white p-4 border border-gray-200">
+                            <div className="flex items-start justify-between gap-2">
+                                <div>
+                                    <h3 className="text-sm font-semibold text-gray-900">
+                                        Top contributing parameters
+                                    </h3>
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Parameters most frequently contributing to flagged segments.
+                                    </p>
+                                </div>
+                                {allTopParameters.length > 5 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAllParameters((prev) => !prev)}
+                                        className="text-xs font-semibold text-emerald-600 hover:text-emerald-700"
+                                    >
+                                        {showAllParameters ? "View top 5" : "View all"}
+                                    </button>
+                                )}
+                            </div>
+                            <div className="mt-3 flex-1 space-y-2 overflow-y-auto pr-1 max-h-48">
+                                {visibleTopParameters.length > 0 ? (
+                                    visibleTopParameters.map((item) => (
+                                        <div
+                                            key={item.name}
+                                            className="flex items-center justify-between"
+                                        >
                                             <div className="flex items-center gap-3">
-                                                <span className="h-2.5 w-8 rounded-full bg-emerald-200" />
+                                                <span className="h-2.5 w-6 rounded-full bg-emerald-200" />
                                                 <span className="text-sm font-medium text-gray-700">
                                                     {item.name}
                                                 </span>
@@ -1540,6 +1601,41 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                         No contributing parameters reported for this run.
                                     </p>
                                 )}
+                            </div>
+                        </div>
+
+                        <div className="flex h-full flex-col rounded-3xl bg-white p-4 border border-gray-200">
+                            <h3 className="text-sm font-semibold text-gray-900">
+                                Detection settings
+                            </h3>
+                            <p className="mt-1 text-xs text-gray-500">
+                                Model configuration captured for credibility.
+                            </p>
+                            <div className="mt-3 grid gap-2 text-sm text-gray-700">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-gray-500">Window size</span>
+                                    <span className="font-semibold text-gray-900">
+                                        {detectionWindowSize ?? "—"}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-gray-500">Stride</span>
+                                    <span className="font-semibold text-gray-900">
+                                        {detectionStride ?? "—"}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-gray-500">Threshold percentile</span>
+                                    <span className="font-semibold text-gray-900">
+                                        {detectionThresholdPercentile ?? "—"}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-gray-500">Parameters used</span>
+                                    <span className="font-semibold text-gray-900">
+                                        {detectionParamsUsed ?? "—"}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     </div>
