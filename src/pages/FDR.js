@@ -573,16 +573,13 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [workflowStage, setWorkflowStage] = useState(
         isLinkedRoute ? "analysis" : "caseSelection"
     );
+    const detectionScopeLabel =
+        availableParameters.length > 0
+            ? "All numeric parameters"
+            : "No numeric parameters were detected in the uploaded file.";
     const availableParameterSet = useMemo(
         () => new Set(availableParameters || []),
         [availableParameters]
-    );
-    const activeDetectionParameters = useMemo(
-        () =>
-            selectedParameters.length > 0
-                ? selectedParameters
-                : availableParameters,
-        [availableParameters, selectedParameters]
     );
     const sampleRows = useMemo(() => {
         if (!anomalyResult) {
@@ -939,14 +936,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     };
 
     const handleRunDetection = async () => {
-        const detectionParameters = activeDetectionParameters;
-
-        if (detectionParameters.length === 0 || !caseNumber) {
+        if (availableParameters.length === 0 || !caseNumber) {
             return;
-        }
-
-        if (selectedParameters.length === 0) {
-            setSelectedParameters(detectionParameters);
         }
 
         setIsRunningDetection(true);
@@ -955,7 +946,6 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
         try {
             const result = await runFdrAnomalyDetection(caseNumber, {
-                parameters: detectionParameters,
                 algorithm: selectedAlgorithm,
                 rows: normalizedRows,
             });
@@ -1900,16 +1890,16 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-4">
                     <div>
                         <h2 className="text-lg font-semibold text-gray-900">
-                            Parameter Selector
+                            Visualization Parameters
                         </h2>
                         <p className="text-sm text-gray-500">
-                            Choose the flight data parameters to visualize and analyze.
+                            Choose the flight data parameters to visualize in charts.
                         </p>
                     </div>
 
                     <div className="bg-gray-50 border border-dashed border-gray-200 rounded-lg p-4">
                         <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                            Flight Parameter Selected
+                            Visualization parameters selected
                         </p>
                         <p className="text-sm font-medium text-gray-800">
                             {selectedParameters.length > 0
@@ -1980,18 +1970,12 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-5">
                         <div className="space-y-1">
                             <h2 className="text-lg font-semibold text-gray-900">Anomaly Detection</h2>
-                            <p className="text-sm text-gray-500">
-                                Detection uses the parameters selected in the left panel. If none are selected, all available
-                                numeric parameters are included automatically.
-                            </p>
                         </div>
 
                         <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
                             <p className="text-xs uppercase tracking-wide text-gray-500">Current scope</p>
                             <p className="font-semibold text-gray-800">
-                                {activeDetectionParameters.length > 0
-                                    ? formatParameterList(activeDetectionParameters)
-                                    : "No numeric parameters were detected in the uploaded file."}
+                                {detectionScopeLabel}
                             </p>
                         </div>
 
@@ -2078,7 +2062,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
 
                                         {noAnomaliesDetected && (
                                             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                                                No anomalies detected for the selected parameters.
+                                                No anomalies detected for the current run.
                                             </div>
                                         )}
 

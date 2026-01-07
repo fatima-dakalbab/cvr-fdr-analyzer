@@ -1,5 +1,17 @@
 import request from './client';
 
+const EXCLUDED_PARAMETERS = new Set([
+  'time',
+  'timestamp',
+  'datetime',
+  'recorded_at',
+  'recordedAt',
+  'TIME',
+  'Session Time',
+  'System Time',
+  'GPS Date & Time',
+]);
+
 const toNumeric = (value) => {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -64,15 +76,34 @@ const buildIsolationForestLike = (rows, parameters) => {
   return sorted.slice(0, targetCount).map((entry) => entry.index);
 };
 
-const detectAnomaliesLocally = (rows = [], parameters = [], algorithm) => {
+const collectNumericParameters = (rows = []) => {
+  const keys = new Set();
+
+  rows.forEach((row) => {
+    if (!row || typeof row !== 'object') {
+      return;
+    }
+
+    Object.entries(row).forEach(([key, value]) => {
+      if (EXCLUDED_PARAMETERS.has(key)) {
+        return;
+      }
+
+      if (toNumeric(value) !== null) {
+        keys.add(key);
+      }
+    });
+  });
+
+  return Array.from(keys);
+};
+
+const detectAnomaliesLocally = (rows = [], _parameters = [], algorithm) => {
   if (!rows.length) {
     return null;
   }
 
-  const usedParameters =
-    Array.isArray(parameters) && parameters.length > 0
-      ? parameters
-      : Object.keys(rows[0] || {}).filter((key) => key !== 'time');
+  const usedParameters = collectNumericParameters(rows);
 
   console.debug('[Anomaly] Executing local detection', {
     algorithm: algorithm || 'zscore',
@@ -187,19 +218,22 @@ const detectAnomaliesLocally = (rows = [], parameters = [], algorithm) => {
       parameter,
       count,
     })),
+    summary: {
+      n_params_used: usedParameters.length,
+      top_parameters: Object.entries(parameterCounts).map(([parameter, count]) => ({
+        parameter,
+        count,
+      })),
+    },
     totalRows: rows.length,
   };
 };
 
 export const runFdrAnomalyDetection = async (
   caseId,
-  { parameters = [], algorithm, rows = [] } = {},
+  { algorithm, rows = [] } = {},
 ) => {
   const payload = {};
-
-  if (Array.isArray(parameters) && parameters.length > 0) {
-    payload.parameters = parameters;
-  }
 
   if (algorithm) {
     payload.algorithm = algorithm;
@@ -208,7 +242,7 @@ export const runFdrAnomalyDetection = async (
   console.debug('[Anomaly] Starting detection run', {
     caseId,
     algorithm: payload.algorithm,
-    parameterCount: payload.parameters ? payload.parameters.length : 'all',
+    parameterCount: 'all',
   });
 
   try {
@@ -244,7 +278,7 @@ export const runFdrAnomalyDetection = async (
     }
   }
 
-  const localResult = detectAnomaliesLocally(rows, parameters, algorithm);
+  const localResult = detectAnomaliesLocally(rows, [], algorithm);
 
   if (localResult) {
     console.debug('[Anomaly] Returning local detection result', {
