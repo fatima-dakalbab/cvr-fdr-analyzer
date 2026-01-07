@@ -1,5 +1,10 @@
+const { execFile } = require('child_process');
+const fs = require('fs/promises');
+const os = require('os');
+const path = require('path');
+const { promisify } = require('util');
 const { findCaseByNumber } = require('./cases');
-const { downloadObjectAsString } = require('./storage');
+const { downloadObjectAsBuffer } = require('./storage');
 const fdrParameterMap = require('../config/fdr-parameter-map');
 
 const MODEL_FEATURES = [
@@ -27,7 +32,9 @@ const FEATURE_TO_CSV_HEADER = MODEL_FEATURES.reduce((acc, feature) => {
 }, {});
 
 const TIMESTAMP_FIELDS = ['GPS Date & Time', 'Session Time', 'System Time'];
-const PYTHON_MODEL_URL = process.env.PYTHON_MODEL_URL || 'http://localhost:8000';
+const PYTHON_BIN = process.env.PYTHON_BIN || 'python3';
+const PYTHON_SCRIPT_PATH = path.resolve(__dirname, '../../../services/fdr_anomaly/run_detect.py');
+const execFileAsync = promisify(execFile);
 
 const parseCsv = (text) => {
   const lines = (text || '')
@@ -259,6 +266,31 @@ const toCsvHeader = (parameterKey) => {
   return metadata?.csvKey || normalizedKey;
 };
 
+const parsePythonErrorMessage = (error) => {
+  const stderr = typeof error?.stderr === 'string' ? error.stderr : '';
+  const stdout = typeof error?.stdout === 'string' ? error.stdout : '';
+  const combined = [stderr, stdout].filter(Boolean).join('\n');
+  const match = combined.match(/Error:\s*(.+)/i);
+  return match?.[1]?.trim() || '';
+};
+
+const runPythonDetection = async (filePath) => {
+  try {
+    const { stdout } = await execFileAsync(PYTHON_BIN, [PYTHON_SCRIPT_PATH, filePath], {
+      maxBuffer: 1024 * 1024 * 10,
+    });
+    return JSON.parse(stdout);
+  } catch (error) {
+    const message = parsePythonErrorMessage(error);
+    if (message) {
+      const pythonError = new Error(message);
+      pythonError.status = 400;
+      throw pythonError;
+    }
+    throw error;
+  }
+};
+
 const analyzeFdrForCase = async (caseNumber, options = {}) => {
   const caseData = await findCaseByNumber(caseNumber);
   if (!caseData) {
@@ -274,62 +306,21 @@ const analyzeFdrForCase = async (caseNumber, options = {}) => {
     throw error;
   }
 
-  const csvText = await downloadObjectAsString({
+  const fileBuffer = await downloadObjectAsBuffer({
     bucket: fdrAttachment.storage.bucket,
     objectKey: fdrAttachment.storage.objectKey,
   });
 
-  const { headers, rows } = parseCsv(csvText);
-  const algorithm = normalizeAlgorithm(options.algorithm);
-  const { calculateColumnStats, detectAnomalies } = getAlgorithmHandlers(algorithm);
-  const requestedParameters = Array.isArray(options.parameters)
-    ? options.parameters.map((param) => toCsvHeader(param)).filter(Boolean)
-    : [];
-  const parameterSet = requestedParameters.length > 0 ? new Set(requestedParameters) : null;
-  const analyzedHeaders = parameterSet
-    ? headers.filter((header) => parameterSet.has(header))
-    : headers;
+  const extension = path.extname(fdrAttachment.storage.objectKey || '') || '.csv';
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fdr-anomaly-'));
+  const tempFilePath = path.join(tempDir, `fdr${extension}`);
 
-  const stats = calculateColumnStats(analyzedHeaders, rows);
-  const anomalies = detectAnomalies(analyzedHeaders, rows, stats);
-  const totalRows = rows.length;
-  const anomalyCount = anomalies.length;
-  const anomalyPercentage = totalRows > 0 ? (anomalyCount / totalRows) * 100 : 0;
-
-  const parameterCounts = anomalies.reduce((acc, item) => {
-    const parameters = Array.isArray(item.parameters) && item.parameters.length > 0
-      ? item.parameters
-      : Object.keys(item.values || {});
-
-    parameters.forEach((parameter) => {
-      if (!parameter) return;
-      acc[parameter] = (acc[parameter] || 0) + 1;
-    });
-    return acc;
-  }, {});
-
-  const topParameters = Object.entries(parameterCounts)
-    .map(([parameter, count]) => ({ parameter, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 5);
-
-  const sampleRows = anomalies.slice(0, 10).map((item) => ({
-    rowIndex: item.rowIndex,
-    parameters: item.parameters,
-    values: item.values,
-    row: item.row,
-  }));
-
-  return {
-    totalRows,
-    anomalyCount,
-    anomalyPercentage,
-    perColumnStats: stats,
-    anomalies,
-    sampleRows,
-    topParameters,
-    algorithm,
-  };
+  try {
+    await fs.writeFile(tempFilePath, fileBuffer);
+    return await runPythonDetection(tempFilePath);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
 };
 
 module.exports = {

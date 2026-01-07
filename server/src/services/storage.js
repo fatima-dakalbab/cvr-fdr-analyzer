@@ -443,7 +443,33 @@ const normalizeObjectKeyCandidates = (objectKey, bucket) => {
   return Array.from(candidates).filter(Boolean);
 };
 
-async function downloadObjectAsString({ bucket, objectKey }) {
+const readObjectBodyAsBuffer = async (body) => {
+  if (!body) {
+    throw new Error('Unable to read object body from storage response.');
+  }
+
+  if (typeof body.transformToByteArray === 'function') {
+    const bytes = await body.transformToByteArray();
+    return Buffer.from(bytes);
+  }
+
+  if (typeof body.transformToString === 'function') {
+    const text = await body.transformToString();
+    return Buffer.from(text, 'utf-8');
+  }
+
+  const chunks = [];
+  for await (const chunk of body) {
+    if (Buffer.isBuffer(chunk)) {
+      chunks.push(chunk);
+    } else {
+      chunks.push(Buffer.from(chunk));
+    }
+  }
+  return Buffer.concat(chunks);
+};
+
+async function downloadObjectAsBuffer({ bucket, objectKey }) {
   if (!objectKey) {
     const error = new Error('objectKey is required to download from object storage.');
     error.status = 400;
@@ -465,19 +491,7 @@ async function downloadObjectAsString({ bucket, objectKey }) {
         }),
       );
 
-      if (response?.Body?.transformToString) {
-        return response.Body.transformToString();
-      }
-
-      if (response?.Body) {
-        const chunks = [];
-        for await (const chunk of response.Body) {
-          chunks.push(chunk);
-        }
-        return Buffer.concat(chunks).toString('utf-8');
-      }
-
-      throw new Error('Unable to read object body from storage response.');
+      return await readObjectBodyAsBuffer(response?.Body);
     } catch (error) {
       errors.push(error);
     }
@@ -491,6 +505,11 @@ async function downloadObjectAsString({ bucket, objectKey }) {
   throw new Error('Unable to download object from storage.');
 }
 
+async function downloadObjectAsString({ bucket, objectKey }) {
+  const buffer = await downloadObjectAsBuffer({ bucket, objectKey });
+  return buffer.toString('utf-8');
+}
+
 
 module.exports = {
   initializeStorage,
@@ -499,4 +518,5 @@ module.exports = {
   objectExists,
   deleteObject,
   downloadObjectAsString,
+  downloadObjectAsBuffer,
 };
