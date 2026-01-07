@@ -15,14 +15,57 @@ import MapCases from '../components/MapCases';
 import { fetchCases } from '../api/cases';
 import { useAuth } from '../hooks/useAuth';
 
-const chartData = [
-  { month: 'Jan', accidents: 2, incidents: 1 },
-  { month: 'Feb', accidents: 1, incidents: 2 },
-  { month: 'Mar', accidents: 3, incidents: 1 },
-  { month: 'Apr', accidents: 2, incidents: 3 },
-  { month: 'May', accidents: 1, incidents: 2 },
-  { month: 'Jun', accidents: 2, incidents: 4 },
-];
+const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const buildMonthlyChartData = (casesList) => {
+  const now = new Date();
+  const monthKeys = [];
+
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    monthKeys.push({
+      key: monthKey,
+      label: monthLabels[date.getMonth()],
+    });
+  }
+
+  const counts = monthKeys.reduce((acc, { key }) => {
+    acc[key] = { accidents: 0, incidents: 0 };
+    return acc;
+  }, {});
+
+  casesList.forEach((caseItem) => {
+    const dateValue = caseItem.date || caseItem.lastUpdated || caseItem.updatedAt;
+    if (!dateValue) {
+      return;
+    }
+
+    const parsedDate = new Date(dateValue);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return;
+    }
+
+    const monthKey = `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}`;
+    if (!counts[monthKey]) {
+      return;
+    }
+
+    const status = String(caseItem.status || '').toLowerCase();
+    const isAccident = status.includes('accident');
+    if (isAccident) {
+      counts[monthKey].accidents += 1;
+      return;
+    }
+
+    counts[monthKey].incidents += 1;
+  });
+
+  return monthKeys.map(({ key, label }) => ({
+    month: label,
+    ...counts[key],
+  }));
+};
 
 const actionCards = [
   {
@@ -74,6 +117,8 @@ const Dashboard = () => {
     return sorted.slice(0, 3);
   }, [cases]);
 
+  const monthlyChartData = useMemo(() => buildMonthlyChartData(cases), [cases]);
+
   const handleAction = (key) => {
     if (key === 'startNewCase') {
       navigate('/cases', { state: { openNewCase: true } });
@@ -113,7 +158,7 @@ const Dashboard = () => {
         <div className="bg-white rounded-xl shadow-md p-6">
           <h3 className="text-lg font-bold mb-4">Number of cases per month</h3>
           <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={chartData}>
+            <BarChart data={monthlyChartData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
               <YAxis />
@@ -125,7 +170,7 @@ const Dashboard = () => {
           </ResponsiveContainer>
         </div>
 
-        <MapCases />
+        <MapCases cases={cases} isLoading={loading} />
       </div>
 
       <div className="bg-white rounded-xl shadow-md p-6">
