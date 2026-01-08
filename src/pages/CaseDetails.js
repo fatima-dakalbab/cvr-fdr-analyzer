@@ -15,6 +15,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { fetchCaseByNumber, updateCase } from '../api/cases';
+import { fetchReportExports } from '../api/report-exports';
 import { createDownloadTarget } from '../api/storage';
 import { evaluateModuleReadiness } from '../utils/analysisAvailability';
 import { CASE_STATUS_COMPLETED, CASE_STATUS_STARTED, CASE_STATUS_NOT_STARTED, normalizeCaseRecord } from '../utils/statuses';
@@ -40,6 +41,10 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
   const [analysisError, setAnalysisError] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [downloadError, setDownloadError] = useState('');
+  const [recentExports, setRecentExports] = useState([]);
+  const [recentExportsError, setRecentExportsError] = useState('');
+  const [recentExportsLoading, setRecentExportsLoading] = useState(false);
+  const [downloadingExportId, setDownloadingExportId] = useState('');
   const [downloadingKey, setDownloadingKey] = useState('');
   const [deletingKey, setDeletingKey] = useState('');
   const navigate = useNavigate();
@@ -79,6 +84,42 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
 
   useEffect(() => {
     setAnalysisError('');
+  }, [caseNumber]);
+
+  useEffect(() => {
+    if (!caseNumber) {
+      setRecentExports([]);
+      return;
+    }
+
+    let isMounted = true;
+    setRecentExportsLoading(true);
+    setRecentExportsError('');
+
+    fetchReportExports(caseNumber, { limit: 5 })
+      .then((exportsList) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setRecentExports(Array.isArray(exportsList) ? exportsList : []);
+      })
+      .catch((err) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setRecentExportsError(err.message || 'Unable to load recent exports.');
+      })
+      .finally(() => {
+        if (isMounted) {
+          setRecentExportsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [caseNumber]);
 
   const handleOpenModule = (moduleKey) => {
@@ -471,6 +512,28 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
     }
   };
 
+  const handleDownloadExport = async (exportItem) => {
+    if (!exportItem?.storagePath) {
+      setDownloadError('No download is available for this report.');
+      return;
+    }
+
+    setDownloadError('');
+    setDownloadingExportId(exportItem.exportId);
+    try {
+      const target = await createDownloadTarget({
+        bucket: exportItem.storageBucket,
+        objectKey: exportItem.storagePath,
+        fileName: exportItem.filename,
+      });
+      window.open(target.downloadUrl, '_blank', 'noopener,noreferrer');
+    } catch (downloadErr) {
+      setDownloadError(downloadErr.message || 'Unable to download the report.');
+    } finally {
+      setDownloadingExportId('');
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto space-y-6">
@@ -571,44 +634,89 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
           </div>
         </div>
 
+        <div className="bg-gray-50 rounded-xl p-5">
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">Reports / Recent Exports</h2>
+          {recentExportsError && (
+            <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              {recentExportsError}
+            </div>
+          )}
+          {recentExportsLoading ? (
+            <p className="text-sm text-gray-500">Loading recent exports…</p>
+          ) : recentExports.length === 0 ? (
+            <p className="text-sm text-gray-500">No exports generated yet.</p>
+          ) : (
+            <ul className="space-y-3">
+              {recentExports.map((item) => (
+                <li key={item.exportId} className="rounded-lg border border-gray-100 bg-white px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                    <span>{item.format}</span>
+                    <span>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '—'}</span>
+                  </div>
+                  <p className="mt-1 text-sm font-semibold text-gray-800">{item.filename}</p>
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                    <span>
+                      {item.createdBy?.firstName || item.createdBy?.lastName
+                        ? `${item.createdBy?.firstName || ''} ${item.createdBy?.lastName || ''}`.trim()
+                        : item.createdBy?.email || 'Unknown'}
+                    </span>
+                    {item.linkedRunId && <span>Run {item.linkedRunId}</span>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadExport(item)}
+                    disabled={downloadingExportId === item.exportId}
+                    className="mt-3 inline-flex items-center justify-center rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {downloadingExportId === item.exportId ? 'Preparing…' : 'Download'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-800">Case summary</h2>
             <p className="text-gray-700 leading-relaxed">{caseData.summary || 'No summary provided.'}</p>
           </div>
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-gray-800">Key details</h2>
-              <div className="space-y-3 text-sm text-gray-700">
-                <div className="flex items-center gap-2">
-                  <Workflow className="w-4 h-4 text-emerald-600" />
-                  <span>Focus: {caseData.module || '—'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-emerald-600" />
-                  <span>{caseData.location || 'Location not specified'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-emerald-600" />
-                  <span>Occurrence date: {caseData.date || '—'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Plane className="w-4 h-4 text-emerald-600" />
-                  <span>Tail number: {aircraftInfo.aircraftNumber || '—'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Plane className="w-4 h-4 text-emerald-600" />
-                  <span>Operator: {aircraftInfo.operator || '—'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Plane className="w-4 h-4 text-emerald-600" />
-                  <span>Flight number: {aircraftInfo.flightNumber || '—'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Tags className="w-4 h-4 text-emerald-600" />
-                  <span className="flex flex-wrap gap-2">
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-800">Key details</h2>
+            <div className="space-y-3 text-sm text-gray-700">
+              <div className="flex items-center gap-2">
+                <Workflow className="w-4 h-4 text-emerald-600" />
+                <span>Focus: {caseData.module || '—'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-emerald-600" />
+                <span>{caseData.location || 'Location not specified'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-emerald-600" />
+                <span>Occurrence date: {caseData.date || '—'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Plane className="w-4 h-4 text-emerald-600" />
+                <span>Tail number: {aircraftInfo.aircraftNumber || '—'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Plane className="w-4 h-4 text-emerald-600" />
+                <span>Operator: {aircraftInfo.operator || '—'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Plane className="w-4 h-4 text-emerald-600" />
+                <span>Flight number: {aircraftInfo.flightNumber || '—'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Tags className="w-4 h-4 text-emerald-600" />
+                <span className="flex flex-wrap gap-2">
                   {tags.length > 0
                     ? tags.map((tag) => (
-                        <span key={tag} className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
+                        <span
+                          key={tag}
+                          className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium"
+                        >
                           {tag}
                         </span>
                       ))

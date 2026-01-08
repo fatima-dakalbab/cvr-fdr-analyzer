@@ -37,6 +37,20 @@ CREATE TABLE IF NOT EXISTS fdr_analysis_runs (
     charts JSONB NOT NULL DEFAULT '{}'::JSONB
 );
 
+CREATE TABLE IF NOT EXISTS report_exports (
+    id SERIAL PRIMARY KEY,
+    export_id TEXT UNIQUE NOT NULL,
+    case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by JSONB NOT NULL DEFAULT '{}'::JSONB,
+    format TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    storage_bucket TEXT,
+    storage_path TEXT,
+    storage_url TEXT,
+    linked_run_id TEXT
+);
+
 -- Ensure legacy installations pick up newly required columns
 ALTER TABLE cases
     ADD COLUMN IF NOT EXISTS module TEXT NOT NULL DEFAULT 'CVR & FDR';
