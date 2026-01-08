@@ -1,79 +1,79 @@
 import React from 'react';
-import {
-  HelpCircle,
-  ClipboardList,
-  CloudUpload,
-  Database,
-  Users,
-  CheckCircle2,
-  Mail,
-  Phone,
-} from 'lucide-react';
+import { HelpCircle, Flag, UploadCloud, Activity, FileText, Wrench } from 'lucide-react';
 
 const HelpCenter = () => {
-  const faqs = [
+  const sections = [
     {
-      question: 'How do I upload new CVR/FDR data?',
-      answer:
-        'Navigate to the "Cases" area and choose "Start New Case". You can then upload your flight data files directly from your workstation or the secure recorder.',
+      id: 'getting-started',
+      title: 'Getting Started',
+      description: 'Create a case and upload data so the investigation workspace is ready.',
+      icon: Flag,
+      steps: [
+        'Select “Start New Case” from the Cases area.',
+        'Enter the occurrence details (date, aircraft registration, and recorder identifiers).',
+        'Upload CVR/FDR files from your workstation or secure recorder.',
+        'Confirm the ingestion summary and proceed to the case dashboard.',
+      ],
     },
     {
-      question: 'Can I collaborate with other investigators?',
-      answer:
-        'Yes. Open the case details and invite team members under "Collaborators". Each investigator will receive an in-app notification and email with next steps.',
+      id: 'fdr-workflow',
+      title: 'FDR Module workflow',
+      description: 'Run analysis, interpret the timeline score, and review evidence.',
+      icon: Activity,
+      steps: [
+        'Open the FDR module from the case dashboard and select “Run Analysis”.',
+        'Review the timeline and note the behavioral deviation score highlights.',
+        'Click a highlighted point to open evidence segments for that interval.',
+        'Use the evidence panel to step through segment details and correlate findings.',
+        'Open the summary view to capture findings for reporting.',
+      ],
     },
     {
-      question: 'Where can I find historical reports?',
-      answer:
-        'Select "Generate Reports" from the left navigation. You can filter by case number, aircraft type, or accident date to access historical documentation.',
+      id: 'reports-workflow',
+      title: 'Reports workflow',
+      description: 'Generate reports and export them in the required format.',
+      icon: FileText,
+      steps: [
+        'Choose “Generate Report” from the Reports area.',
+        'Select the sections you want included (timeline summary, findings, attachments).',
+        'Review the preview to ensure the narrative matches your investigation notes.',
+        'Export to PDF or DOCX and save it to your case archive.',
+      ],
+    },
+    {
+      id: 'troubleshooting',
+      title: 'Troubleshooting',
+      description: 'Common issues and how to resolve them quickly.',
+      icon: Wrench,
+      steps: [
+        'Missing data: verify the recorder upload completed and re-upload any corrupt files.',
+        'Slow analysis: close unused modules and rerun during low-traffic periods.',
+        'Rerun vs. view history: use “View History” for past results; choose “Rerun” only after data updates.',
+        'Export not showing: confirm the export finished and check your browser download location.',
+      ],
     },
   ];
 
-  const gettingStartedSteps = [
+  const glossary = [
     {
-      title: 'Confirm investigation details',
-      description:
-        'Capture the occurrence date, aircraft registration, and recorder serial numbers before starting a new case to maintain traceability.',
-      icon: ClipboardList,
+      term: 'Behavioral deviation score',
+      definition:
+        'A score that highlights how far observed flight behavior deviates from expected patterns during the timeline.',
     },
     {
-      title: 'Ingest CVR/FDR datasets',
-      description:
-        'Upload recorder files through Start New Case. The ingestion pipeline validates integrity and decodes common formats automatically.',
-      icon: CloudUpload,
+      term: 'Threshold',
+      definition:
+        'The score value that triggers a timeline highlight or alert for further review.',
     },
     {
-      title: 'Structure timelines and metadata',
-      description:
-        'Add investigative notes, crew rosters, and event timelines in Case Details so collaborators have the latest context.',
-      icon: Database,
+      term: 'Segment',
+      definition:
+        'A bounded slice of the flight timeline used to group evidence and data points.',
     },
     {
-      title: 'Invite collaborating investigators',
-      description:
-        'Share the case with accredited colleagues and tailor module access so each specialist sees the right combination of tools.',
-      icon: Users,
-    },
-    {
-      title: 'Correlate audio and flight parameters',
-      description:
-        'Use the Correlate view to synchronise transcript excerpts with key flight data points and flag segments requiring deeper review.',
-      icon: CheckCircle2,
-    },
-  ];
-
-  const supportChannels = [
-    {
-      title: 'Email Support',
-      value: 'acoe@sharjah.ac.ae',
-      icon: Mail,
-      note: 'Response within 12 business hours',
-    },
-    {
-      title: 'Operations Hotline',
-      value: '+971 2 123 4567',
-      icon: Phone,
-      note: 'Available 24/7 for critical incidents',
+      term: 'Evidence panel',
+      definition:
+        'The workspace view that lists segments, audio snippets, and parameter traces for the selected timeline interval.',
     },
   ];
 
@@ -82,67 +82,79 @@ const HelpCenter = () => {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
         <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-emerald-50 text-emerald-700 text-sm font-semibold">
           <HelpCircle className="w-4 h-4" />
-          Help Center
+          Help Center Manual
         </div>
-        <h1 className="mt-4 text-3xl font-bold text-gray-900">How can we help you today?</h1>
+        <h1 className="mt-4 text-3xl font-bold text-gray-900">CVR/FDR Investigation User Manual</h1>
         <p className="mt-3 text-gray-600 max-w-3xl">
-          Follow the guided workflow below to launch new investigations, then explore FAQs or reach out through our support channels.
+          Use this step-by-step guide to start a case, run analysis, review evidence, and publish reports.
         </p>
-
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {gettingStartedSteps.map(({ title, description, icon: Icon }) => (
-            <div key={title} className="bg-emerald-50/60 border border-emerald-100 rounded-2xl p-6">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-white text-emerald-600 shadow-sm">
-                  <Icon className="w-6 h-6" />
-                </div>
-                <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-              </div>
-              <p className="mt-3 text-sm text-gray-700 leading-relaxed">{description}</p>
-            </div>
-          ))}
-        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-900">Frequently Asked Questions</h2>
-          <div className="mt-4 space-y-6">
-            {faqs.map(({ question, answer }) => (
-              <div key={question} className="border-b border-gray-100 pb-5 last:border-b-0 last:pb-0">
-                <h3 className="text-lg font-semibold text-gray-800">{question}</h3>
-                <p className="mt-2 text-gray-600 text-sm leading-relaxed">{answer}</p>
-              </div>
+      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6">
+        <aside className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm h-fit lg:sticky lg:top-6">
+          <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Sections</p>
+          <nav className="mt-4 space-y-3 text-sm">
+            {sections.map(({ id, title }) => (
+              <a
+                key={id}
+                href={`#${id}`}
+                className="flex items-center justify-between rounded-lg px-3 py-2 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50"
+              >
+                <span>{title}</span>
+                <UploadCloud className="w-4 h-4 text-emerald-400" />
+              </a>
             ))}
-          </div>
-        </div>
-        <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-900">Support Channels</h2>
-          <div className="mt-4 space-y-4">
-            {supportChannels.map(({ title, value, icon: Icon, note }) => (
-              <div key={title} className="flex items-start gap-3">
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-emerald-50 text-emerald-600">
+            <a
+              href="#glossary"
+              className="flex items-center justify-between rounded-lg px-3 py-2 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50"
+            >
+              <span>Glossary</span>
+              <UploadCloud className="w-4 h-4 text-emerald-400" />
+            </a>
+          </nav>
+        </aside>
+
+        <div className="space-y-6">
+          {sections.map(({ id, title, description, icon: Icon, steps }) => (
+            <section
+              key={id}
+              id={id}
+              className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600">
                   <Icon className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">{title}</p>
-                  <p className="text-sm text-gray-600">{value}</p>
-                  <p className="text-xs text-gray-400 mt-1">{note}</p>
+                  <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
+                  <p className="text-sm text-gray-600">{description}</p>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
+              <ol className="mt-4 space-y-3 text-sm text-gray-700 list-decimal list-inside">
+                {steps.map((step) => (
+                  <li key={step} className="leading-relaxed">
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ))}
 
-      <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-8">
-        <h2 className="text-xl font-semibold text-emerald-900">Need immediate assistance?</h2>
-        <p className="mt-2 text-emerald-800 max-w-2xl text-sm">
-          Reach out through the support channels above with your case number and investigation summary so our operations desk can route you quickly.
-        </p>
+          <section id="glossary" className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-gray-900">Glossary</h2>
+            <dl className="mt-4 space-y-4">
+              {glossary.map(({ term, definition }) => (
+                <div key={term}>
+                  <dt className="text-sm font-semibold text-gray-800">{term}</dt>
+                  <dd className="mt-1 text-sm text-gray-600">{definition}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        </div>
       </div>
     </div>
   );
 };
 
-export default HelpCenter
+export default HelpCenter;
