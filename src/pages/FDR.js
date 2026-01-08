@@ -805,6 +805,66 @@ const defaultParameterTableRows = buildParameterTable(
     defaultAvailableParameters
 );
 const defaultDetectionTrendSamples = buildDetectionTrendSeries(sampleNormalizedRows);
+const PENDING_FDR_RUN_KEY = "fdrPendingRun";
+
+const readPendingFdrRun = () => {
+    if (typeof window === "undefined") {
+        return null;
+    }
+
+    try {
+        const stored = window.localStorage.getItem(PENDING_FDR_RUN_KEY);
+        return stored ? JSON.parse(stored) : null;
+    } catch (_error) {
+        return null;
+    }
+};
+
+const writePendingFdrRun = (payload) => {
+    if (typeof window === "undefined") {
+        return;
+    }
+
+    try {
+        window.localStorage.setItem(PENDING_FDR_RUN_KEY, JSON.stringify(payload));
+    } catch (_error) {
+        // Ignore storage errors.
+    }
+};
+
+const clearPendingFdrRun = () => {
+    if (typeof window === "undefined") {
+        return;
+    }
+
+    try {
+        window.localStorage.removeItem(PENDING_FDR_RUN_KEY);
+    } catch (_error) {
+        // Ignore storage errors.
+    }
+};
+
+const isNewerTimestamp = (candidate, baseline) => {
+    if (!candidate) {
+        return false;
+    }
+
+    const candidateTime = new Date(candidate).getTime();
+    if (!Number.isFinite(candidateTime)) {
+        return false;
+    }
+
+    if (!baseline) {
+        return true;
+    }
+
+    const baselineTime = new Date(baseline).getTime();
+    if (!Number.isFinite(baselineTime)) {
+        return true;
+    }
+
+    return candidateTime > baselineTime;
+};
 
 export default function FDR({ caseNumber: propCaseNumber }) {
     const { caseNumber: routeCaseNumber } = useParams();
@@ -839,6 +899,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [workflowStage, setWorkflowStage] = useState(
         isLinkedRoute ? "analysis" : "caseSelection"
     );
+    const pendingRunRef = useRef(null);
     const detectionScopeLabel =
         availableParameters.length > 0
             ? "All numeric parameters"
@@ -859,6 +920,24 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     useEffect(() => {
         selectedCaseRef.current = selectedCase;
     }, [selectedCase]);
+
+    useEffect(() => {
+        if (!caseNumber) {
+            pendingRunRef.current = null;
+            return;
+        }
+
+        const pending = readPendingFdrRun();
+        if (!pending || pending.caseNumber !== caseNumber) {
+            pendingRunRef.current = null;
+            return;
+        }
+
+        pendingRunRef.current = pending;
+        setIsRunningDetection(true);
+        setWorkflowStage("detectionRunning");
+        setAnomalyError("");
+    }, [caseNumber]);
 
     const resolveTimelineActor = useCallback(() => {
         const fallback =
@@ -1156,10 +1235,83 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         }
 
         setAnomalyResult(savedAnalysis);
+        if (
+            pendingRunRef.current &&
+            pendingRunRef.current.caseNumber === caseNumber &&
+            isNewerTimestamp(savedTimestamp, pendingRunRef.current.previousAnalysisAt)
+        ) {
+            clearPendingFdrRun();
+            pendingRunRef.current = null;
+            setIsRunningDetection(false);
+        }
         setWorkflowStage((prev) =>
-            prev === "analysis" || prev === "caseSelection" ? "results" : prev
+            prev === "analysis" ||
+            prev === "caseSelection" ||
+            prev === "detectionRunning" ||
+            prev === "detectionError"
+                ? "results"
+                : prev
         );
-    }, [selectedCase]);
+    }, [selectedCase, caseNumber]);
+
+    useEffect(() => {
+        if (workflowStage !== "detectionRunning" || !caseNumber) {
+            return;
+        }
+
+        const pending = pendingRunRef.current || readPendingFdrRun();
+        if (!pending || pending.caseNumber !== caseNumber) {
+            return;
+        }
+
+        let isMounted = true;
+        const pollForResults = async () => {
+            try {
+                const data = await fetchCaseByNumber(caseNumber);
+                if (!isMounted) {
+                    return false;
+                }
+
+                const preview = buildCasePreview(data);
+                const latestRun = data?.fdrAnalysisLatestRun || null;
+                const latestTimestamp =
+                    latestRun?.createdAt || data?.fdrAnalysisUpdatedAt || null;
+
+                if (
+                    latestTimestamp &&
+                    isNewerTimestamp(
+                        latestTimestamp,
+                        pending.previousAnalysisAt || pending.startedAt
+                    )
+                ) {
+                    clearPendingFdrRun();
+                    pendingRunRef.current = null;
+                    setSelectedCase(preview);
+                    setIsRunningDetection(false);
+                    setWorkflowStage("results");
+                    return true;
+                }
+
+                return false;
+            } catch (_error) {
+                return false;
+            }
+        };
+
+        const intervalId = window.setInterval(async () => {
+            const completed = await pollForResults();
+            if (completed) {
+                window.clearInterval(intervalId);
+            }
+        }, 5000);
+
+        pollForResults();
+
+        return () => {
+            isMounted = false;
+            window.clearInterval(intervalId);
+        };
+    }, [workflowStage, caseNumber]);
 
     useEffect(() => {
         const caseData = selectedCase?.source;
@@ -1337,15 +1489,24 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     };
 
     const handleRunDetection = async () => {
-        if (availableParameters.length === 0 || !caseNumber) {
+        if (availableParameters.length === 0 || !caseNumber || isRunningDetection) {
             return;
         }
 
         setIsRunningDetection(true);
         setAnomalyError("");
         setAnomalyResult(null);
+        setWorkflowStage("detectionRunning");
         const detectionStartedAt = new Date().toISOString();
         detectionStartRef.current = detectionStartedAt;
+        const previousAnalysisAt = analysisRunMeta?.createdAt || analysisTimestamp || null;
+        const pendingPayload = {
+            caseNumber,
+            startedAt: detectionStartedAt,
+            previousAnalysisAt,
+        };
+        pendingRunRef.current = pendingPayload;
+        writePendingFdrRun(pendingPayload);
 
         await appendTimelineEntry({
             entry: createTimelineEntry({
@@ -1422,14 +1583,16 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     fdrAnalysisUpdatedAt: updatedAt,
                 },
             });
-            setWorkflowStage((prev) =>
-                prev === "analysis" ? "detectionComplete" : prev
-            );
+            clearPendingFdrRun();
+            pendingRunRef.current = null;
+            setWorkflowStage("results");
         } catch (error) {
             setAnomalyResult(null);
             setAnomalyError(
                 error?.message || "Unable to run anomaly detection for this case."
             );
+            clearPendingFdrRun();
+            pendingRunRef.current = null;
             const detectionFinishedAt = new Date().toISOString();
             const startTime = detectionStartRef.current;
             const durationMs = startTime
@@ -1456,6 +1619,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                     },
                 }),
             });
+            setWorkflowStage("detectionError");
         } finally {
             setIsRunningDetection(false);
         }
@@ -2073,6 +2237,85 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         </div>
     );
 }
+
+    if (workflowStage === "detectionRunning") {
+        return (
+            <div className="max-w-4xl mx-auto flex flex-col items-center justify-center py-24 text-center space-y-6">
+                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-emerald-50">
+                    <div className="h-12 w-12 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
+                </div>
+                <div className="space-y-2">
+                    <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-500">
+                        FDR Module
+                    </p>
+                    <h1 className="text-3xl font-bold text-gray-900">
+                        Running behavioral anomaly detection...
+                    </h1>
+                    <p className="text-sm text-gray-600 max-w-md mx-auto">
+                        This may take a few minutes depending on dataset size.
+                    </p>
+                </div>
+                <div className="rounded-2xl border border-emerald-100 bg-white px-6 py-4 text-sm text-gray-600 shadow-sm">
+                    <p className="font-semibold text-emerald-700">
+                        Case {selectedCase?.id || caseNumber}
+                    </p>
+                    <p className="mt-1">
+                        We will automatically load the latest results as soon as the analysis
+                        completes.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    if (workflowStage === "detectionError") {
+        return (
+            <div className="max-w-4xl mx-auto flex flex-col items-center justify-center py-24 text-center space-y-6">
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        className="h-10 w-10"
+                    >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01" />
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M10.29 3.86l-7.5 13a1 1 0 00.87 1.5h15a1 1 0 00.87-1.5l-7.5-13a1 1 0 00-1.74 0z"
+                        />
+                    </svg>
+                </div>
+                <div className="space-y-2">
+                    <h1 className="text-3xl font-bold text-gray-900">
+                        Analysis couldn&apos;t complete
+                    </h1>
+                    <p className="text-sm text-gray-600 max-w-md mx-auto">
+                        {anomalyError ||
+                            "Something went wrong while running behavioral anomaly detection."}
+                    </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                        type="button"
+                        onClick={handleRunDetection}
+                        className="rounded-xl bg-emerald-600 px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                    >
+                        Retry
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setWorkflowStage("analysis")}
+                        className="rounded-xl border border-gray-200 px-6 py-2 text-sm font-semibold text-gray-700 transition hover:border-emerald-200 hover:text-emerald-600"
+                    >
+                        Back to case
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     if (workflowStage === "detectionComplete") {
         return (
