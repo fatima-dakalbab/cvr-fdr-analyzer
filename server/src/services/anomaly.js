@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
 const { findCaseByNumber, updateCaseFdrAnalysis } = require('./cases');
+const { createFdrAnalysisRun } = require('./fdr-analysis-runs');
 const { downloadObjectAsBuffer } = require('./storage');
 const fdrParameterMap = require('../config/fdr-parameter-map');
 
@@ -337,6 +338,58 @@ const analyzeFdrForCase = async (caseNumber, options = {}) => {
       analysis_version: analysis?.analysis_version || ANALYSIS_VERSION,
     };
     await updateCaseFdrAnalysis(caseNumber, payload);
+    const createdBy = (() => {
+      const user = options.user;
+      if (!user) {
+        return null;
+      }
+      const nameParts = [user.firstName, user.lastName].filter(Boolean);
+      const name = nameParts.join(' ').trim();
+      return {
+        id: user.id,
+        name: name || user.email,
+        email: user.email,
+      };
+    })();
+    const summary = analysis?.summary || {};
+    const detectionSettings = {
+      window_size: summary.window_size ?? null,
+      stride: summary.stride ?? null,
+      threshold_percentile: summary.threshold_percentile ?? null,
+      parameters_used_count: summary.n_params_used ?? null,
+    };
+    const runOutput = {
+      analysis_version: payload.analysis_version,
+      summary: analysis?.summary || {},
+      segments: analysis?.segments || [],
+      timeline: analysis?.timeline || null,
+    };
+    const runSummary = {
+      total_rows_reviewed: summary.n_rows ?? null,
+      flagged_rows: summary.flaggedRowCount ?? summary.flagged_row_count ?? null,
+      flagged_percent: summary.flaggedPercent ?? summary.flagged_percent ?? null,
+      segments_found: summary.segments_found ?? null,
+    };
+    const runCharts = {
+      timeline: analysis?.timeline || null,
+    };
+    const runRecord = await createFdrAnalysisRun({
+      caseId: caseData.id,
+      createdBy,
+      modelName: 'behavioral_autoencoder',
+      detectionSettings,
+      output: runOutput,
+      summary: runSummary,
+      charts: runCharts,
+    });
+    if (runRecord) {
+      payload.run_metadata = {
+        runId: runRecord.runId,
+        createdAt: runRecord.createdAt,
+        createdBy: runRecord.createdBy,
+        modelName: runRecord.modelName,
+      };
+    }
     return payload;
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

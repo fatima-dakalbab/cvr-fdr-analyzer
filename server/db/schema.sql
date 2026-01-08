@@ -24,6 +24,19 @@ CREATE TABLE IF NOT EXISTS cases (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS fdr_analysis_runs (
+    id SERIAL PRIMARY KEY,
+    run_id TEXT UNIQUE NOT NULL,
+    case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by JSONB NOT NULL DEFAULT '{}'::JSONB,
+    model_name TEXT NOT NULL,
+    detection_settings JSONB NOT NULL DEFAULT '{}'::JSONB,
+    output JSONB NOT NULL DEFAULT '{}'::JSONB,
+    summary JSONB NOT NULL DEFAULT '{}'::JSONB,
+    charts JSONB NOT NULL DEFAULT '{}'::JSONB
+);
+
 -- Ensure legacy installations pick up newly required columns
 ALTER TABLE cases
     ADD COLUMN IF NOT EXISTS module TEXT NOT NULL DEFAULT 'CVR & FDR';
