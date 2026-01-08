@@ -15,9 +15,11 @@ import {
   Mail,
 } from 'lucide-react';
 import { fetchCaseByNumber, updateCase } from '../api/cases';
+import { createDownloadTarget } from '../api/storage';
 import { evaluateModuleReadiness } from '../utils/analysisAvailability';
 import { CASE_STATUS_COMPLETED, CASE_STATUS_STARTED, CASE_STATUS_NOT_STARTED, normalizeCaseRecord } from '../utils/statuses';
 import { deleteAttachmentFromObjectStore } from '../utils/storage';
+import { resolveActorLabel } from '../utils/timeline';
 
 const statusColors = {
   [CASE_STATUS_COMPLETED]: 'text-emerald-700 bg-emerald-100',
@@ -37,6 +39,8 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
   const [error, setError] = useState('');
   const [analysisError, setAnalysisError] = useState('');
   const [deleteError, setDeleteError] = useState('');
+  const [downloadError, setDownloadError] = useState('');
+  const [downloadingKey, setDownloadingKey] = useState('');
   const [deletingKey, setDeletingKey] = useState('');
   const navigate = useNavigate();
   const { caseNumber: routeCaseNumber } = useParams();
@@ -232,6 +236,241 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
     latestFdrRunTimestamp || caseData?.fdrAnalysisLatestRun || caseData?.fdrAnalysisUpdatedAt || caseData?.fdrAnalysis
   );
 
+  const attachments = useMemo(
+    () => (Array.isArray(caseData?.attachments) ? caseData.attachments : []),
+    [caseData],
+  );
+  const caseTimeline = useMemo(
+    () => (Array.isArray(caseData?.timeline) ? caseData.timeline : []),
+    [caseData],
+  );
+
+  const formatTimelineTimestamp = (value) => {
+    if (!value) {
+      return '—';
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return typeof value === 'string' ? value : '—';
+    }
+
+    return new Intl.DateTimeFormat('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(parsed);
+  };
+
+  const buildMetadataEntries = (metadata) => {
+    if (!metadata) {
+      return [];
+    }
+
+    if (Array.isArray(metadata)) {
+      return metadata;
+    }
+
+    if (typeof metadata === 'object') {
+      return Object.entries(metadata).map(([label, value]) => ({
+        label,
+        value,
+      }));
+    }
+
+    return [{ label: 'Details', value: metadata }];
+  };
+
+  const derivedTimeline = useMemo(() => {
+    if (!caseData) {
+      return [];
+    }
+
+    const entries = [];
+    const hasEvent = (predicate) =>
+      caseTimeline.some((item) => {
+        if (!item || typeof item !== 'object') {
+          return false;
+        }
+        return predicate(item);
+      });
+
+    const fdrAttachments = attachments.filter((attachment) => {
+      const type = (attachment?.type || '').toUpperCase();
+      const name = (attachment?.name || '').toLowerCase();
+      const storageKey = attachment?.storage?.objectKey || attachment?.storage?.key;
+      return Boolean(storageKey) && (type === 'FDR' || name.includes('fdr'));
+    });
+
+    fdrAttachments.forEach((attachment) => {
+      const uploadedAt = attachment.uploadedAt || attachment.createdAt || null;
+      const uploadedBy = attachment.uploadedBy || '';
+      if (
+        hasEvent(
+          (item) =>
+            item.kind === 'fdr_upload' ||
+            (item.action || item.title || '').toLowerCase().includes('fdr data uploaded'),
+        )
+      ) {
+        return;
+      }
+
+      entries.push({
+        id: `fdr-upload-${attachment.name}-${uploadedAt || ''}`,
+        kind: 'fdr_upload',
+        action: 'FDR data uploaded',
+        actor: uploadedBy ? { name: uploadedBy } : null,
+        timestamp: uploadedAt,
+        metadata: [{ label: 'File', value: attachment.name }],
+      });
+    });
+
+    const latestRun = caseData.fdrAnalysisLatestRun;
+    if (
+      latestRun &&
+      !hasEvent(
+        (item) =>
+          item.kind === 'fdr_detection_completed' ||
+          (item.action || '').toLowerCase().includes('behavioral anomaly detection completed'),
+      )
+    ) {
+      const actor = latestRun.createdBy?.name || latestRun.createdBy?.email || '';
+      entries.push({
+        id: `fdr-detection-start-${latestRun.runId || latestRun.createdAt}`,
+        kind: 'fdr_detection_started',
+        action: 'Behavioral anomaly detection started',
+        actor: actor ? { name: actor } : null,
+        timestamp: latestRun.createdAt,
+        metadata: [{ label: 'Status', value: 'Inferred start time' }],
+      });
+      entries.push({
+        id: `fdr-detection-complete-${latestRun.runId || latestRun.createdAt}`,
+        kind: 'fdr_detection_completed',
+        action: 'Behavioral anomaly detection completed',
+        actor: actor ? { name: actor } : null,
+        timestamp: latestRun.createdAt,
+        metadata: [
+          { label: 'Status', value: 'Success' },
+          { label: 'Duration', value: '—' },
+        ],
+        links: {
+          resultsUrl: `/cases/${caseNumber}/fdr`,
+        },
+      });
+    }
+
+    const reportAttachments = attachments.filter((attachment) => {
+      const name = (attachment?.name || '').toLowerCase();
+      const type = (attachment?.type || '').toLowerCase();
+      return (
+        name.endsWith('.pdf') ||
+        name.endsWith('.docx') ||
+        type === 'report' ||
+        type === 'report export'
+      );
+    });
+
+    reportAttachments.forEach((attachment) => {
+      if (
+        hasEvent(
+          (item) =>
+            item.kind === 'report_export' ||
+            (item.action || '').toLowerCase().includes('report exported'),
+        )
+      ) {
+        return;
+      }
+
+      const extension = attachment?.name?.split('.').pop() || '';
+      const format = extension ? extension.toUpperCase() : attachment?.format?.toUpperCase() || 'Report';
+      entries.push({
+        id: `report-export-${attachment.name}-${attachment.uploadedAt || ''}`,
+        kind: 'report_export',
+        action: `Report exported (${format})`,
+        actor: attachment.uploadedBy ? { name: attachment.uploadedBy } : null,
+        timestamp: attachment.uploadedAt || attachment.createdAt || null,
+        metadata: [
+          { label: 'Format', value: format },
+          {
+            label: 'Run used',
+            value: 'Open results',
+            href: `/cases/${caseNumber}/fdr`,
+          },
+        ],
+        links: {
+          resultsUrl: `/cases/${caseNumber}/fdr`,
+          download: {
+            bucket: attachment?.storage?.bucket,
+            objectKey: attachment?.storage?.objectKey || attachment?.storage?.key,
+            fileName: attachment.name,
+            contentType: attachment.contentType,
+          },
+        },
+      });
+    });
+
+    return entries;
+  }, [attachments, caseData, caseNumber, caseTimeline]);
+
+  const timeline = useMemo(() => {
+    const normalized = caseTimeline
+      .map((item, index) => {
+        if (!item || typeof item !== 'object') {
+          return null;
+        }
+
+        return {
+          id: item.id || `${item.timestamp || item.date || item.title}-${index}`,
+          kind: item.kind || item.type || null,
+          action: item.action || item.title || item.label || 'Timeline event',
+          actor: item.actor || item.user || item.performedBy || item.by || null,
+          timestamp: item.timestamp || item.date || item.createdAt || item.time || null,
+          metadata: item.metadata || item.details || item.meta || null,
+          links: item.links || {},
+        };
+      })
+      .filter(Boolean);
+
+    const combined = [...normalized, ...derivedTimeline];
+    return combined.sort((a, b) => {
+      const aTime = a.timestamp ? new Date(a.timestamp).getTime() : null;
+      const bTime = b.timestamp ? new Date(b.timestamp).getTime() : null;
+
+      if (aTime === null && bTime === null) {
+        return 0;
+      }
+      if (aTime === null) {
+        return 1;
+      }
+      if (bTime === null) {
+        return -1;
+      }
+      return aTime - bTime;
+    });
+  }, [caseTimeline, derivedTimeline]);
+
+  const handleDownloadReport = async (entry) => {
+    if (!entry?.links?.download?.objectKey) {
+      setDownloadError('No download is available for this report.');
+      return;
+    }
+
+    setDownloadError('');
+    setDownloadingKey(entry.id);
+    try {
+      const target = await createDownloadTarget({
+        bucket: entry.links.download.bucket,
+        objectKey: entry.links.download.objectKey,
+        fileName: entry.links.download.fileName,
+        contentType: entry.links.download.contentType,
+      });
+      window.open(target.downloadUrl, '_blank', 'noopener,noreferrer');
+    } catch (downloadErr) {
+      setDownloadError(downloadErr.message || 'Unable to download the report.');
+    } finally {
+      setDownloadingKey('');
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto space-y-6">
@@ -272,8 +511,6 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
   }
 
   const tags = Array.isArray(caseData.tags) ? caseData.tags : [];
-  const timeline = Array.isArray(caseData.timeline) ? caseData.timeline : [];
-  const attachments = Array.isArray(caseData.attachments) ? caseData.attachments : [];
   const investigatorInfo = caseData.investigator || {};
   const aircraftInfo = caseData.aircraft || {};
 
@@ -481,19 +718,81 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-gray-50 rounded-xl p-5">
             <h2 className="text-lg font-semibold text-gray-800 mb-4">Timeline</h2>
+            {downloadError && (
+              <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                {downloadError}
+              </div>
+            )}
             {timeline.length === 0 ? (
               <p className="text-sm text-gray-500">No timeline events recorded.</p>
             ) : (
               <ol className="space-y-4">
-                {timeline.map((item, index) => (
-                  <li key={`${item.date}-${item.title}-${index}`} className="flex gap-3">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 mt-2" />
-                    <div>
-                      <p className="text-sm font-semibold text-gray-800">{item.title}</p>
-                      <p className="text-xs text-gray-500">{item.date || '—'}</p>
-                    </div>
-                  </li>
-                ))}
+                {timeline.map((item) => {
+                  const actorLabel = resolveActorLabel(item.actor);
+                  const metadataEntries = buildMetadataEntries(item.metadata);
+                  const showResultsButton = item.kind === 'fdr_detection_completed' && item.links?.resultsUrl;
+                  const showDownloadButton = item.kind === 'report_export' && item.links?.download?.objectKey;
+
+                  return (
+                    <li key={item.id} className="flex gap-3">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500 mt-2" />
+                      <div className="flex-1 space-y-2">
+                        <div className="flex flex-col gap-1">
+                          <p className="text-sm font-semibold text-gray-800">{item.action}</p>
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                            <span>{formatTimelineTimestamp(item.timestamp)}</span>
+                            {actorLabel && <span>• {actorLabel}</span>}
+                          </div>
+                        </div>
+                        {metadataEntries.length > 0 && (
+                          <dl className="space-y-1 text-xs text-gray-500">
+                            {metadataEntries.map((entry, entryIndex) => (
+                              <div key={`${entry.label}-${entryIndex}`} className="flex flex-wrap gap-1">
+                                <dt className="font-semibold text-gray-600">{entry.label}:</dt>
+                                <dd>
+                                  {entry.href ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => navigate(entry.href)}
+                                      className="text-emerald-600 hover:text-emerald-700"
+                                    >
+                                      {entry.value}
+                                    </button>
+                                  ) : (
+                                    entry.value
+                                  )}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
+                        {(showResultsButton || showDownloadButton) && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            {showResultsButton && (
+                              <button
+                                type="button"
+                                onClick={() => navigate(item.links.resultsUrl)}
+                                className="inline-flex items-center justify-center rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                              >
+                                Open results
+                              </button>
+                            )}
+                            {showDownloadButton && (
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadReport(item)}
+                                disabled={downloadingKey === item.id}
+                                className="inline-flex items-center justify-center rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-70"
+                              >
+                                {downloadingKey === item.id ? 'Preparing…' : 'Download'}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ol>
             )}
           </div>

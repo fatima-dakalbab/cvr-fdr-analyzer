@@ -13,11 +13,13 @@ import {
 } from "recharts";
 import { fetchCaseByNumber, updateCase } from "../api/cases";
 import { runFdrAnomalyDetection } from "../api/anomaly";
+import { useAuth } from "../hooks/useAuth";
 import useRecentCases from "../hooks/useRecentCases";
 import { buildCasePreview } from "../utils/caseDisplay";
 import { evaluateModuleReadiness } from "../utils/analysisAvailability";
 import { fetchAttachmentFromObjectStore } from "../utils/storage";
 import { fdrParameterMap } from "../config/fdr-parameters";
+import { createTimelineEntry, resolveActor } from "../utils/timeline";
 
 const defaultCaseOptions = [
     {
@@ -808,6 +810,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const { caseNumber: routeCaseNumber } = useParams();
     const caseNumber = propCaseNumber || routeCaseNumber;
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [selectedCase, setSelectedCase] = useState(null);
     const [isRunningDetection, setIsRunningDetection] = useState(false);
     const [detectionTrendData, setDetectionTrendData] = useState(
@@ -830,6 +833,8 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [caseSummaryCopied, setCaseSummaryCopied] = useState(false);
     const [analysisTimestamp, setAnalysisTimestamp] = useState(null);
     const [analysisRunMeta, setAnalysisRunMeta] = useState(null);
+    const selectedCaseRef = useRef(null);
+    const detectionStartRef = useRef(null);
     const isLinkedRoute = Boolean(caseNumber);
     const [workflowStage, setWorkflowStage] = useState(
         isLinkedRoute ? "analysis" : "caseSelection"
@@ -850,6 +855,64 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         });
         return map;
     }, [availableParameters]);
+
+    useEffect(() => {
+        selectedCaseRef.current = selectedCase;
+    }, [selectedCase]);
+
+    const resolveTimelineActor = useCallback(() => {
+        const fallback =
+            selectedCaseRef.current?.source?.owner ||
+            selectedCaseRef.current?.source?.examiner ||
+            selectedCaseRef.current?.source?.investigator?.name ||
+            "Unknown";
+        return resolveActor({ user, fallback });
+    }, [user]);
+
+    const formatDuration = useCallback((durationMs) => {
+        if (!Number.isFinite(durationMs)) {
+            return "—";
+        }
+
+        const totalSeconds = Math.max(Math.round(durationMs / 1000), 0);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+
+        if (minutes > 0) {
+            return `${minutes}m ${seconds}s`;
+        }
+
+        return `${seconds}s`;
+    }, []);
+
+    const appendTimelineEntry = useCallback(
+        async ({ entry, extraUpdates = {} }) => {
+            const current = selectedCaseRef.current?.source;
+            if (!current || !caseNumber) {
+                return;
+            }
+
+            const existingTimeline = Array.isArray(current.timeline)
+                ? current.timeline
+                : [];
+            const nextTimeline = [...existingTimeline, entry];
+            const nextSource = { ...current, ...extraUpdates, timeline: nextTimeline };
+
+            setSelectedCase((prev) =>
+                prev ? { ...prev, source: nextSource } : prev
+            );
+
+            try {
+                const updated = await updateCase(caseNumber, nextSource);
+                if (updated) {
+                    setSelectedCase(buildCasePreview(updated));
+                }
+            } catch (_error) {
+                // Ignore timeline update failures for now.
+            }
+        },
+        [caseNumber]
+    );
     const filteredParameters = useMemo(() => {
         const filter = chartFilterText.trim().toLowerCase();
         if (!filter) {
@@ -1281,6 +1344,26 @@ export default function FDR({ caseNumber: propCaseNumber }) {
         setIsRunningDetection(true);
         setAnomalyError("");
         setAnomalyResult(null);
+        const detectionStartedAt = new Date().toISOString();
+        detectionStartRef.current = detectionStartedAt;
+
+        await appendTimelineEntry({
+            entry: createTimelineEntry({
+                kind: "fdr_detection_started",
+                action: "Behavioral anomaly detection started",
+                actor: resolveTimelineActor(),
+                timestamp: detectionStartedAt,
+                metadata: [
+                    {
+                        label: "Parameters evaluated",
+                        value:
+                            availableParameters.length > 0
+                                ? `${availableParameters.length} parameters`
+                                : "No parameters",
+                    },
+                ],
+            }),
+        });
 
         try {
             const result = await runFdrAnomalyDetection(caseNumber, {
@@ -1308,19 +1391,37 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                       }
                     : prev
             );
-            if (selectedCase?.source) {
-                updateCase(caseNumber, {
-                    ...selectedCase.source,
+            const detectionFinishedAt = new Date().toISOString();
+            const startTime = detectionStartRef.current;
+            const durationMs = startTime
+                ? new Date(detectionFinishedAt).getTime() -
+                  new Date(startTime).getTime()
+                : null;
+
+            await appendTimelineEntry({
+                entry: createTimelineEntry({
+                    kind: "fdr_detection_completed",
+                    action: "Behavioral anomaly detection completed",
+                    actor: resolveTimelineActor(),
+                    timestamp: detectionFinishedAt,
+                    metadata: [
+                        { label: "Status", value: "Success" },
+                        {
+                            label: "Duration",
+                            value:
+                                durationMs !== null ? formatDuration(durationMs) : "—",
+                        },
+                    ],
+                    links: {
+                        resultsUrl: `/cases/${caseNumber}/fdr`,
+                        runId: runMeta?.runId || null,
+                    },
+                }),
+                extraUpdates: {
                     fdrAnalysis: normalizedResult,
                     fdrAnalysisUpdatedAt: updatedAt,
-                })
-                    .then((updated) => {
-                        if (updated) {
-                            setSelectedCase(buildCasePreview(updated));
-                        }
-                    })
-                    .catch(() => {});
-            }
+                },
+            });
             setWorkflowStage((prev) =>
                 prev === "analysis" ? "detectionComplete" : prev
             );
@@ -1329,6 +1430,32 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             setAnomalyError(
                 error?.message || "Unable to run anomaly detection for this case."
             );
+            const detectionFinishedAt = new Date().toISOString();
+            const startTime = detectionStartRef.current;
+            const durationMs = startTime
+                ? new Date(detectionFinishedAt).getTime() -
+                  new Date(startTime).getTime()
+                : null;
+
+            await appendTimelineEntry({
+                entry: createTimelineEntry({
+                    kind: "fdr_detection_completed",
+                    action: "Behavioral anomaly detection completed",
+                    actor: resolveTimelineActor(),
+                    timestamp: detectionFinishedAt,
+                    metadata: [
+                        { label: "Status", value: "Failure" },
+                        {
+                            label: "Duration",
+                            value:
+                                durationMs !== null ? formatDuration(durationMs) : "—",
+                        },
+                    ],
+                    links: {
+                        resultsUrl: `/cases/${caseNumber}/fdr`,
+                    },
+                }),
+            });
         } finally {
             setIsRunningDetection(false);
         }

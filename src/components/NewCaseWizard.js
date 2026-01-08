@@ -3,6 +3,7 @@ import { Check, UploadCloud, X } from 'lucide-react';
 import { formatFileSize } from '../utils/files';
 import { uploadAttachmentToObjectStore } from '../utils/storage';
 import { deriveCaseStatus, deriveDataStatus, CASE_STATUS_NOT_STARTED } from '../utils/statuses';
+import { createTimelineEntry } from '../utils/timeline';
 
 const steps = [
   { title: 'Step 1', subtitle: 'Case Details' },
@@ -317,7 +318,7 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
     setCurrentStep((step) => Math.max(step - 1, 0));
   };
 
-  const buildPayload = ({ attachments, analyses, module, status }) => {
+  const buildPayload = ({ attachments, analyses, module, status, timeline }) => {
     const normalizedDate = normalizeDate(caseInfo.occurrenceDate || aircraft.dateOfFlight);
     const tagsArray = caseInfo.tags
       .split(',')
@@ -340,7 +341,7 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
       tags: tagsArray,
       analyses,
       attachments,
-      timeline: [],
+      timeline,
       investigator: {
         ...investigator,
       },
@@ -415,7 +416,31 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
       const module = deriveDataStatus(attachments);
       const status = deriveCaseStatus({ analyses });
 
-      const payload = buildPayload({ attachments, analyses, module, status });
+      const timelineUpdates = [];
+      if (hasFdrData) {
+        const fdrAttachment = attachments.find(
+          (item) => item?.type === 'FDR' && item?.storage?.objectKey,
+        );
+        if (fdrAttachment) {
+          timelineUpdates.push(
+            createTimelineEntry({
+              kind: 'fdr_upload',
+              action: 'FDR data uploaded',
+              actor: { name: fdrAttachment.uploadedBy || uploadedBy },
+              timestamp: fdrAttachment.uploadedAt,
+              metadata: [{ label: 'File', value: fdrAttachment.name }],
+            }),
+          );
+        }
+      }
+
+      const payload = buildPayload({
+        attachments,
+        analyses,
+        module,
+        status,
+        timeline: timelineUpdates,
+      });
 
       await onSubmit(payload);
       resetState();
