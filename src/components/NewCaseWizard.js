@@ -429,6 +429,9 @@ const NewCaseWizard = ({ isOpen, onClose, onSubmit, isSubmitting = false, errorM
               actor: { name: fdrAttachment.uploadedBy || uploadedBy },
               timestamp: fdrAttachment.uploadedAt,
               metadata: [{ label: 'File', value: fdrAttachment.name }],
+              links: {
+                resultsUrl: `/cases/${caseInfo.caseNumber}/fdr`,
+              },
             }),
           );
         }
