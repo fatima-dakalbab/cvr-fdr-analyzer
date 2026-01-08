@@ -146,7 +146,7 @@ const parameterGroupDefinitions = [
     },
 ];
 
-const defaultVisibleChartsPerGroup = 8;
+const defaultVisibleChartsPerGroup = 3;
 const maxChartPoints = 1200;
 const timeSources = {
     session: "session",
