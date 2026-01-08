@@ -17,7 +17,7 @@ import { useAuth } from '../hooks/useAuth';
 
 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const buildMonthlyChartData = (casesList) => {
+const buildFallbackMonths = () => {
   const now = new Date();
   const monthKeys = [];
 
@@ -26,12 +26,51 @@ const buildMonthlyChartData = (casesList) => {
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     monthKeys.push({
       key: monthKey,
-      label: monthLabels[date.getMonth()],
+      label: `${monthLabels[date.getMonth()]} ${date.getFullYear()}`,
     });
   }
 
+  return monthKeys;
+};
+
+const buildMonthlyChartData = (casesList) => {
+  const dateBuckets = casesList
+    .map((caseItem) => caseItem.date || caseItem.lastUpdated || caseItem.updatedAt)
+    .map((dateValue) => {
+      if (!dateValue) {
+        return null;
+      }
+
+      const parsedDate = new Date(dateValue);
+      if (Number.isNaN(parsedDate.getTime())) {
+        return null;
+      }
+
+      return parsedDate;
+    })
+    .filter(Boolean);
+
+  const monthKeys = dateBuckets.length
+    ? Array.from(
+        new Set(
+          dateBuckets.map(
+            (parsedDate) =>
+              `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}`,
+          ),
+        ),
+      )
+        .sort()
+        .map((key) => {
+          const [year, month] = key.split('-').map(Number);
+          return {
+            key,
+            label: `${monthLabels[month - 1]} ${year}`,
+          };
+        })
+    : buildFallbackMonths();
+
   const counts = monthKeys.reduce((acc, { key }) => {
-    acc[key] = { accidents: 0, incidents: 0 };
+    acc[key] = { cases: 0 };
     return acc;
   }, {});
 
@@ -51,14 +90,7 @@ const buildMonthlyChartData = (casesList) => {
       return;
     }
 
-    const status = String(caseItem.status || '').toLowerCase();
-    const isAccident = status.includes('accident');
-    if (isAccident) {
-      counts[monthKey].accidents += 1;
-      return;
-    }
-
-    counts[monthKey].incidents += 1;
+    counts[monthKey].cases += 1;
   });
 
   return monthKeys.map(({ key, label }) => ({
@@ -156,7 +188,7 @@ const Dashboard = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div className="bg-white rounded-xl shadow-md p-6">
-          <h3 className="text-lg font-bold mb-4">Number of cases per month</h3>
+          <h3 className="text-lg font-bold mb-4">Cases per month</h3>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={monthlyChartData}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -164,8 +196,7 @@ const Dashboard = () => {
               <YAxis />
               <Tooltip />
               <Legend />
-              <Bar dataKey="accidents" fill="#ef4444" name="Accidents" />
-              <Bar dataKey="incidents" fill="#019348" name="Incidents" />
+              <Bar dataKey="cases" fill="#019348" name="Cases" />
             </BarChart>
           </ResponsiveContainer>
         </div>
