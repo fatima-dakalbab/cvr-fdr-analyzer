@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   AudioLines,
@@ -11,28 +11,112 @@ import {
   PlaneTakeoff,
   Workflow,
 } from 'lucide-react';
+import { fetchCases } from '../../api/cases';
+import { createDownloadTarget } from '../../api/storage';
 import { useAuth } from '../../hooks/useAuth';
+import { normalizeCaseRecord } from '../../utils/statuses';
 
-const notifications = [
-  {
-    id: 1,
-    title: 'Case AAI-UAE-2025-001 updated',
-    desc: 'New report uploaded by Eng. Ahmed Al Mansoori',
-    time: '2h ago',
-  },
-  {
-    id: 2,
-    title: 'Reminder',
-    desc: 'Safety review meeting scheduled on 2025-08-30 at 10:00 AM.',
-    time: '5h ago',
-  },
-  {
-    id: 3,
-    title: 'Alert',
-    desc: 'CVR data for Case AAI-UAE-2025-013 is incomplete. Please re-upload',
-    time: '1d ago',
-  },
-];
+const NOTIFICATION_TYPES = new Set([
+  'report_export',
+  'fdr_detection_completed',
+  'fdr_upload',
+  'case_updated',
+]);
+
+const isSuccessTimelineEntry = (entry) => {
+  if (entry?.kind !== 'fdr_detection_completed') {
+    return true;
+  }
+
+  const statusEntry = Array.isArray(entry.metadata)
+    ? entry.metadata.find((item) => item?.label === 'Status')
+    : null;
+
+  if (!statusEntry) {
+    return true;
+  }
+
+  return statusEntry.value === 'Success';
+};
+
+const buildNotificationAction = (caseNumber, entry) => {
+  if (entry?.kind === 'report_export' && entry?.links?.download?.objectKey) {
+    return {
+      type: 'download',
+      label: 'Download report',
+      download: entry.links.download,
+    };
+  }
+
+  if (entry?.kind === 'case_updated') {
+    return {
+      type: 'navigate',
+      label: 'View case',
+      url: entry?.links?.caseUrl || `/cases/${caseNumber}`,
+    };
+  }
+
+  const resultsUrl =
+    entry?.links?.resultsUrl ||
+    (entry?.kind === 'fdr_upload' || entry?.kind === 'fdr_detection_completed'
+      ? `/cases/${caseNumber}/fdr`
+      : `/cases/${caseNumber}`);
+
+  return {
+    type: 'navigate',
+    label: 'Open results',
+    url: resultsUrl,
+  };
+};
+
+const buildNotificationsFromCases = (caseList) => {
+  if (!Array.isArray(caseList)) {
+    return [];
+  }
+
+  const items = [];
+
+  caseList.forEach((caseItem) => {
+    const timeline = Array.isArray(caseItem?.timeline) ? caseItem.timeline : [];
+    const caseNumber = caseItem?.caseNumber || 'Unknown case';
+    const caseName = caseItem?.caseName ? ` · ${caseItem.caseName}` : '';
+
+    timeline
+      .filter((entry) => entry?.kind && NOTIFICATION_TYPES.has(entry.kind))
+      .filter((entry) => isSuccessTimelineEntry(entry))
+      .forEach((entry) => {
+        const action = buildNotificationAction(caseNumber, entry);
+        let title = entry.action || 'Update recorded';
+        let description = `${caseNumber}${caseName}`;
+
+        if (entry.kind === 'report_export') {
+          title = 'New report generated';
+          description = `Report exported for ${caseNumber}${caseName}`;
+        } else if (entry.kind === 'fdr_detection_completed') {
+          title = 'FDR analysis completed';
+          description = `Behavioral analysis finished for ${caseNumber}${caseName}`;
+        } else if (entry.kind === 'fdr_upload') {
+          title = 'FDR upload completed';
+          description = `New FDR data uploaded for ${caseNumber}${caseName}`;
+        } else if (entry.kind === 'case_updated') {
+          title = 'Case updated';
+          description = `Details updated for ${caseNumber}${caseName}`;
+        }
+
+        items.push({
+          id: `${caseNumber}-${entry.id}`,
+          title,
+          description,
+          timestamp: entry.timestamp,
+          action,
+        });
+      });
+  });
+
+  return items
+    .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
+    .slice(0, 6);
+};
 
 const navigationLinks = [
   { to: '/', icon: Home, label: 'Home', end: true },
@@ -48,9 +132,44 @@ const AuthenticatedLayout = () => {
   const { user, logout } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsError, setNotificationsError] = useState('');
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [downloadingNotificationId, setDownloadingNotificationId] = useState('');
 
   const initials = (user?.firstName || user?.email || '?').charAt(0).toUpperCase();
   const displayName = user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email;
+
+  const formatNotificationTimestamp = (value) => {
+    if (!value) {
+      return '—';
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return typeof value === 'string' ? value : '—';
+    }
+
+    return new Intl.DateTimeFormat('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(parsed);
+  };
+
+  const loadNotifications = useCallback(async () => {
+    setNotificationsLoading(true);
+    setNotificationsError('');
+    try {
+      const response = await fetchCases();
+      const normalized = Array.isArray(response) ? response.map(normalizeCaseRecord) : [];
+      setNotifications(buildNotificationsFromCases(normalized));
+    } catch (error) {
+      setNotificationsError(error.message || 'Unable to load notifications.');
+      setNotifications([]);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -61,6 +180,53 @@ const AuthenticatedLayout = () => {
     navigate('/account');
     setShowUserMenu(false);
   };
+
+  const handleNotificationAction = async (notification) => {
+    if (!notification?.action) {
+      return;
+    }
+
+    if (notification.action.type === 'download') {
+      const download = notification.action.download;
+      if (!download?.objectKey) {
+        setNotificationsError('No download is available for this report.');
+        return;
+      }
+
+      setDownloadingNotificationId(notification.id);
+      setNotificationsError('');
+      try {
+        const target = await createDownloadTarget({
+          bucket: download.bucket,
+          objectKey: download.objectKey,
+          fileName: download.fileName,
+          contentType: download.contentType,
+        });
+        window.open(target.downloadUrl, '_blank', 'noopener,noreferrer');
+      } catch (error) {
+        setNotificationsError(error.message || 'Unable to download the report.');
+      } finally {
+        setDownloadingNotificationId('');
+      }
+      return;
+    }
+
+    if (notification.action.type === 'navigate' && notification.action.url) {
+      navigate(notification.action.url);
+      setShowNotifications(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showNotifications) {
+      loadNotifications();
+    }
+  }, [loadNotifications, showNotifications]);
+
+  const notificationCount = useMemo(
+    () => (notificationsLoading ? 0 : notifications.length),
+    [notifications.length, notificationsLoading],
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -93,21 +259,54 @@ const AuthenticatedLayout = () => {
                   className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
                 >
                   <Bell className="w-6 h-6" />
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+                  {notificationCount > 0 && (
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+                  )}
                 </button>
                 {showNotifications && (
                   <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border py-2">
                     <div className="px-4 py-2 border-b font-semibold">Notifications</div>
-                    {notifications.map((notification) => (
-                      <div
-                        key={notification.id}
-                        className="px-4 py-3 hover:bg-gray-50 border-b cursor-pointer"
-                      >
-                        <div className="font-medium text-sm">{notification.title}</div>
-                        <div className="text-gray-600 text-xs mt-1">{notification.desc}</div>
-                        <div className="text-gray-400 text-xs mt-1">{notification.time}</div>
+                    {notificationsError && (
+                      <div className="px-4 py-3 text-xs text-rose-600 border-b bg-rose-50">
+                        {notificationsError}
                       </div>
-                    ))}
+                    )}
+                    {notificationsLoading ? (
+                      <div className="px-4 py-6 text-sm text-gray-500">Loading updates…</div>
+                    ) : notifications.length === 0 ? (
+                      <div className="px-4 py-6 text-sm text-gray-500">No recent activity yet.</div>
+                    ) : (
+                      notifications.map((notification) => (
+                        <button
+                          key={notification.id}
+                          type="button"
+                          onClick={() => handleNotificationAction(notification)}
+                          className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b last:border-b-0"
+                          disabled={downloadingNotificationId === notification.id}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <div className="font-medium text-sm text-gray-900">
+                                {notification.title}
+                              </div>
+                              <div className="text-gray-600 text-xs mt-1">
+                                {notification.description}
+                              </div>
+                              <div className="text-gray-400 text-xs mt-1">
+                                {formatNotificationTimestamp(notification.timestamp)}
+                              </div>
+                            </div>
+                            {notification.action?.label && (
+                              <span className="text-[11px] font-semibold uppercase text-emerald-600 mt-0.5">
+                                {downloadingNotificationId === notification.id
+                                  ? 'Preparing…'
+                                  : notification.action.label}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      ))
+                    )}
                   </div>
                 )}
               </div>

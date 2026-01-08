@@ -495,9 +495,26 @@ const CaseFormModal = ({
               actor: { name: fdrAttachment.uploadedBy || ownerValue || investigatorName || 'Unknown' },
               timestamp: fdrAttachment.uploadedAt,
               metadata: [{ label: 'File', value: fdrAttachment.name }],
+              links: {
+                resultsUrl: `/cases/${formValues.caseNumber}/fdr`,
+              },
             }),
           );
         }
+      }
+
+      if (mode === 'edit') {
+        timelineUpdates.push(
+          createTimelineEntry({
+            kind: 'case_updated',
+            action: 'Case updated',
+            actor: { name: ownerValue || investigatorName || 'Unknown' },
+            timestamp: normalizedLastUpdated || new Date().toISOString(),
+            links: {
+              caseUrl: `/cases/${formValues.caseNumber}`,
+            },
+          }),
+        );
       }
 
       await onSubmit({
