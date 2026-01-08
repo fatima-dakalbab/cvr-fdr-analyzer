@@ -79,6 +79,44 @@ const exportFormats = [
   { id: "docx", label: "DOCX" },
 ];
 
+const resolveReportAttachmentType = ({ sections, caseData }) => {
+  const hasFdrSection = sections.some((section) =>
+    ["fdrMetrics", "correlation"].includes(section.id)
+  );
+  if (hasFdrSection) {
+    return "FDR";
+  }
+
+  const hasCvrSection = sections.some((section) => section.id === "cvrTranscripts");
+  if (hasCvrSection) {
+    return "CVR";
+  }
+
+  const moduleLabel = `${caseData?.module || ""}`.toUpperCase();
+  if (moduleLabel.includes("FDR")) {
+    return "FDR";
+  }
+  if (moduleLabel.includes("CVR")) {
+    return "CVR";
+  }
+
+  return "FDR";
+};
+
+const getExportErrorMessage = (error) => {
+  const message = error?.message || "";
+  if (message.includes('Attachment type must be either "FDR" or "CVR".')) {
+    return "Report exports must be tagged as FDR or CVR. Adjust the selected sections and try again.";
+  }
+  if (message.includes("attachmentType must be either")) {
+    return "We couldn't upload the report because its attachment type was invalid. Please try again.";
+  }
+  if (message.includes("Case not found")) {
+    return "We couldn't find that case to export. Please reload and try again.";
+  }
+  return "We couldn't export the report. Please try again in a moment.";
+};
+
 export default function Reports() {
   const location = useLocation();
   const { user } = useAuth();
@@ -631,6 +669,10 @@ export default function Reports() {
       const selectedSectionItems = sectionOptions.filter(
         (section) => selectedSections[section.id]
       );
+      const attachmentType = resolveReportAttachmentType({
+        sections: selectedSectionItems,
+        caseData,
+      });
       const actor = resolveActor({
         user,
         fallback: caseData.owner || caseData.examiner || "Unknown",
@@ -652,7 +694,7 @@ export default function Reports() {
       const file = new File([blob], fileName, { type: contentType });
       const uploadResult = await uploadAttachmentToObjectStore({
         caseNumber: selectedCaseNumber,
-        attachmentType: "Report",
+        attachmentType,
         file,
         existingAttachments: caseData.attachments || [],
       });
@@ -732,7 +774,7 @@ export default function Reports() {
         setRecentExports((prev) => [exportRecord, ...prev].slice(0, 5));
       }
     } catch (error) {
-      setExportError(error.message || "Unable to generate the report.");
+      setExportError(getExportErrorMessage(error));
     } finally {
       setIsExporting(false);
     }

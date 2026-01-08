@@ -5,6 +5,11 @@ import {
 } from '../api/storage';
 import { calculateFileChecksum, inferContentType } from './files';
 
+const SUPPORTED_ATTACHMENT_TYPES = new Set(['FDR', 'CVR']);
+
+const normalizeAttachmentType = (attachmentType) =>
+  typeof attachmentType === 'string' ? attachmentType.trim().toUpperCase() : '';
+
 const buildUploadHeaders = (responseHeaders = {}, fallbackContentType) => {
   const normalized = { ...responseHeaders };
   const hasContentType = Object.keys(normalized).some(
@@ -31,6 +36,11 @@ export const uploadAttachmentToObjectStore = async ({
 
   if (!caseNumber) {
     throw new Error('A case number is required before uploading attachments.');
+  }
+
+  const normalizedAttachmentType = normalizeAttachmentType(attachmentType);
+  if (!SUPPORTED_ATTACHMENT_TYPES.has(normalizedAttachmentType)) {
+    throw new Error('Attachment type must be either "FDR" or "CVR".');
   }
 
   const contentType = inferContentType(file);
@@ -63,7 +73,7 @@ export const uploadAttachmentToObjectStore = async ({
   }
   const uploadTarget = await createUploadTarget({
     caseNumber,
-    attachmentType,
+    attachmentType: normalizedAttachmentType,
     fileName: file.name,
     contentType,
   });
