@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Link, Outlet, matchPath, useLocation, useNavigate } from 'react-router-dom';
 import {
   AudioLines,
   Bell,
@@ -119,16 +119,49 @@ const buildNotificationsFromCases = (caseList) => {
 };
 
 const navigationLinks = [
-  { to: '/', icon: Home, label: 'Home', end: true },
-  { to: '/cases', icon: FileText, label: 'Cases' },
-  { to: '/cases/fdr', icon: PlaneTakeoff, label: 'FDR Module' },
-  { to: '/cases/cvr', icon: AudioLines, label: 'CVR Module' },
-  { to: '/cases/correlate', icon: Workflow, label: 'Correlate FDR & CVR' },
-  { to: '/reports', icon: FileBarChart, label: 'Generate Reports' },
+  { to: '/', icon: Home, label: 'Home', matchers: [{ path: '/', end: true }] },
+  {
+    to: '/cases',
+    icon: FileText,
+    label: 'Cases',
+    matchers: [
+      { path: '/cases', end: true },
+      { path: '/cases/:caseNumber', end: true },
+    ],
+  },
+  {
+    to: '/cases/fdr',
+    icon: PlaneTakeoff,
+    label: 'FDR Module',
+    matchers: [
+      { path: '/cases/fdr', end: false },
+      { path: '/cases/:caseNumber/fdr', end: false },
+    ],
+  },
+  {
+    to: '/cases/cvr',
+    icon: AudioLines,
+    label: 'CVR Module',
+    matchers: [
+      { path: '/cases/cvr', end: false },
+      { path: '/cases/:caseNumber/cvr', end: false },
+    ],
+  },
+  {
+    to: '/cases/correlate',
+    icon: Workflow,
+    label: 'Correlate FDR & CVR',
+    matchers: [
+      { path: '/cases/correlate', end: false },
+      { path: '/cases/:caseNumber/correlate', end: false },
+    ],
+  },
+  { to: '/reports', icon: FileBarChart, label: 'Generate Reports', matchers: [{ path: '/reports', end: false }] },
 ];
 
 const AuthenticatedLayout = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -352,22 +385,23 @@ const AuthenticatedLayout = () => {
       <div className="flex">
         <aside className="w-64 bg-white border-r min-h-screen">
           <nav className="p-4 space-y-2">
-            {navigationLinks.map(({ to, icon: Icon, label, end }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={end}
-                className={({ isActive }) =>
-                  `flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
+            {navigationLinks.map(({ to, icon: Icon, label, matchers }) => {
+              const isActive = matchers.some((matcher) => matchPath(matcher, location.pathname));
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`flex w-full items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors ${
                     isActive ? 'text-white shadow' : 'text-gray-700 hover:bg-gray-50'
-                  }`
-                }
-                style={({ isActive }) => (isActive ? { backgroundColor: '#019348' } : undefined)}
-              >
-                <Icon className="w-5 h-5" />
-                <span>{label}</span>
-              </NavLink>
-            ))}
+                  }`}
+                  style={isActive ? { backgroundColor: '#019348' } : undefined}
+                >
+                  <Icon className="w-5 h-5" />
+                  <span>{label}</span>
+                </Link>
+              );
+            })}
           </nav>
         </aside>
 
