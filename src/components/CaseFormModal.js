@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { formatFileSize } from '../utils/files';
 import { deriveCaseStatus, deriveDataStatus } from '../utils/statuses';
 import { uploadAttachmentToObjectStore } from '../utils/storage';
+import { createTimelineEntry } from '../utils/timeline';
 
 const DEFAULT_ANALYSES = {
   fdr: { status: 'Not Started', lastRun: null, summary: '' },
@@ -479,6 +480,26 @@ const CaseFormModal = ({
         ...formValues.investigator,
       };
 
+      const existingTimeline = Array.isArray(formValues.timeline) ? formValues.timeline : [];
+      const timelineUpdates = [];
+
+      if (fdrUploadedNow) {
+        const fdrAttachment = attachments.find(
+          (item) => item?.type === 'FDR' && item?.storage?.objectKey,
+        );
+        if (fdrAttachment) {
+          timelineUpdates.push(
+            createTimelineEntry({
+              kind: 'fdr_upload',
+              action: 'FDR data uploaded',
+              actor: { name: fdrAttachment.uploadedBy || ownerValue || investigatorName || 'Unknown' },
+              timestamp: fdrAttachment.uploadedAt,
+              metadata: [{ label: 'File', value: fdrAttachment.name }],
+            }),
+          );
+        }
+      }
+
       await onSubmit({
         ...formValues,
         status: derivedStatus,
@@ -492,7 +513,7 @@ const CaseFormModal = ({
         aircraft,
         attachments,
         analyses,
-        timeline: Array.isArray(formValues.timeline) ? formValues.timeline : [],
+        timeline: [...existingTimeline, ...timelineUpdates],
         tags,
         lastUpdated: normalizedLastUpdated,
         date: formatDateInput(formValues.date) || null,
