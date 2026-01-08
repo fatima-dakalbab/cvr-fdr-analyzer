@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Download, FileText, Info, Layers, Search, Sparkles } from "lucide-react";
 import { fetchCaseByNumber, fetchCases, updateCase } from "../api/cases";
+import { createDownloadTarget } from "../api/storage";
+import { createReportExport, fetchReportExports } from "../api/report-exports";
 import { useAuth } from "../hooks/useAuth";
 import { uploadAttachmentToObjectStore } from "../utils/storage";
 import { createTimelineEntry, resolveActor } from "../utils/timeline";
@@ -100,6 +102,11 @@ export default function Reports() {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   const [lastExport, setLastExport] = useState(null);
+  const [recentExports, setRecentExports] = useState([]);
+  const [recentExportsError, setRecentExportsError] = useState("");
+  const [recentExportsLoading, setRecentExportsLoading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
+  const [downloadingExportId, setDownloadingExportId] = useState("");
   const comboboxRef = useRef(null);
   const sectionIds = useMemo(
     () => new Set(sectionOptions.map((option) => option.id)),
@@ -232,6 +239,42 @@ export default function Reports() {
 
     setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : 0);
   }, [caseQuery, filteredCases, isCaseListOpen, selectedCaseNumber]);
+
+  useEffect(() => {
+    if (!selectedCaseNumber) {
+      setRecentExports([]);
+      return;
+    }
+
+    let isMounted = true;
+    setRecentExportsLoading(true);
+    setRecentExportsError("");
+
+    fetchReportExports(selectedCaseNumber, { limit: 5 })
+      .then((exportsList) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setRecentExports(Array.isArray(exportsList) ? exportsList : []);
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setRecentExportsError(error.message || "Unable to load recent exports.");
+      })
+      .finally(() => {
+        if (isMounted) {
+          setRecentExportsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedCaseNumber]);
 
   const handleSelectCase = (caseItem) => {
     setSelectedCaseNumber(caseItem.caseNumber);
@@ -392,15 +435,50 @@ export default function Reports() {
         attachments: updatedAttachments,
       });
 
+      const exportRecord = await createReportExport(selectedCaseNumber, {
+        format: extension.toUpperCase(),
+        filename: fileName,
+        storageBucket: uploadResult.storage?.bucket,
+        storagePath: uploadResult.storage?.objectKey,
+        storageUrl: uploadResult.storage?.endpoint,
+        linkedRunId: caseData.fdrAnalysisLatestRun?.runId || null,
+      });
+
       setLastExport({
-        timestamp: uploadResult.uploadedAt,
+        timestamp: exportRecord?.createdAt || uploadResult.uploadedAt,
         actor: actor.name,
         format: extension.toUpperCase(),
       });
+
+      if (exportRecord) {
+        setRecentExports((prev) => [exportRecord, ...prev].slice(0, 5));
+      }
     } catch (error) {
       setExportError(error.message || "Unable to generate the report.");
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleDownloadExport = async (exportItem) => {
+    if (!exportItem?.storagePath) {
+      setDownloadError("No download is available for this report.");
+      return;
+    }
+
+    setDownloadError("");
+    setDownloadingExportId(exportItem.exportId);
+    try {
+      const target = await createDownloadTarget({
+        bucket: exportItem.storageBucket,
+        objectKey: exportItem.storagePath,
+        fileName: exportItem.filename,
+      });
+      window.open(target.downloadUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setDownloadError(error.message || "Unable to download the report.");
+    } finally {
+      setDownloadingExportId("");
     }
   };
 
@@ -670,17 +748,46 @@ export default function Reports() {
             </div>
 
             <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-md">
-              <h4 className="text-sm font-semibold text-gray-800">Recent Exports</h4>
-              <ul className="mt-4 space-y-3 text-sm text-gray-600">
-                <li className="flex items-center justify-between">
-                  <span>AAI-UAE-2025-001 — Full correlation pack</span>
-                  <span className="text-gray-400">PDF</span>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>AAI-UAE-2025-009 — Transcript briefing</span>
-                  <span className="text-gray-400">DOCX</span>
-                </li>
-              </ul>
+              <h4 className="text-sm font-semibold text-gray-800">Recent exports for this case</h4>
+              {downloadError && <p className="mt-3 text-xs text-rose-600">{downloadError}</p>}
+              {recentExportsError && (
+                <p className="mt-3 text-xs text-rose-600">{recentExportsError}</p>
+              )}
+              {recentExportsLoading ? (
+                <p className="mt-3 text-xs text-gray-500">Loading exports…</p>
+              ) : recentExports.length === 0 ? (
+                <p className="mt-3 text-xs text-gray-500">No exports generated yet.</p>
+              ) : (
+                <ul className="mt-4 space-y-3 text-sm text-gray-600">
+                  {recentExports.map((item) => (
+                    <li key={item.exportId} className="space-y-1 rounded-lg border border-gray-100 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                        <span>{item.format}</span>
+                        <span>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "—"}</span>
+                      </div>
+                      <p className="text-sm font-medium text-gray-800">{item.filename}</p>
+                      {item.linkedRunId && (
+                        <p className="text-xs text-gray-500">Run {item.linkedRunId}</p>
+                      )}
+                      <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                        <span>
+                          {item.createdBy?.firstName || item.createdBy?.lastName
+                            ? `${item.createdBy?.firstName || ""} ${item.createdBy?.lastName || ""}`.trim()
+                            : item.createdBy?.email || "Unknown"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadExport(item)}
+                          disabled={downloadingExportId === item.exportId}
+                          className="text-emerald-600 hover:text-emerald-700 disabled:cursor-not-allowed disabled:text-emerald-300"
+                        >
+                          {downloadingExportId === item.exportId ? "Preparing…" : "Download"}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </aside>
         )}

@@ -6,6 +6,11 @@ const {
   updateCase,
   deleteCase,
 } = require('../services/cases');
+const {
+  createReportExport,
+  getCaseIdByNumber,
+  listReportExportsByCaseId,
+} = require('../services/report-exports');
 const { analyzeFdrForCase } = require('../services/anomaly');
 const { validateCasePayload } = require('../utils/validate-case');
 
@@ -24,6 +29,53 @@ router.post('/:caseNumber/fdr/analyze', async (req, res, next) => {
   try {
     const result = await analyzeFdrForCase(req.params.caseNumber, { user: req.user });
     res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:caseNumber/report-exports', async (req, res, next) => {
+  try {
+    const caseId = await getCaseIdByNumber(req.params.caseNumber);
+    if (!caseId) {
+      res.status(404).json({ error: 'Case not found' });
+      return;
+    }
+
+    const limit = Number.parseInt(req.query.limit, 10);
+    const exportsList = await listReportExportsByCaseId(caseId, limit);
+    res.json(exportsList);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:caseNumber/report-exports', async (req, res, next) => {
+  try {
+    const caseId = await getCaseIdByNumber(req.params.caseNumber);
+    if (!caseId) {
+      res.status(404).json({ error: 'Case not found' });
+      return;
+    }
+
+    const payload = req.body || {};
+    if (!payload.format || !payload.filename) {
+      res.status(400).json({ error: 'format and filename are required.' });
+      return;
+    }
+
+    const created = await createReportExport({
+      caseId,
+      createdBy: req.user,
+      format: payload.format,
+      filename: payload.filename,
+      storageBucket: payload.storageBucket,
+      storagePath: payload.storagePath,
+      storageUrl: payload.storageUrl,
+      linkedRunId: payload.linkedRunId,
+    });
+
+    res.status(201).json(created);
   } catch (error) {
     next(error);
   }
