@@ -66,6 +66,7 @@ const mapToDbCase = (payload) => {
 };
 
 const mapFromDbCase = (row) => ({
+  id: row.id,
   caseNumber: row.case_number,
   caseName: row.case_name,
   module: row.module,

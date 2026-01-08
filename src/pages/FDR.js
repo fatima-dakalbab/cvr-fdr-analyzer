@@ -518,6 +518,12 @@ const formatAnalysisTimestamp = (value) => {
     }).format(date);
 };
 
+const formatAnalysisRunLabel = (timestamp, runMeta) => {
+    const base = formatAnalysisTimestamp(timestamp);
+    const createdBy = runMeta?.createdBy?.name || runMeta?.createdBy?.email;
+    return createdBy ? `${base} by ${createdBy}` : base;
+};
+
 const normalizeFdrRows = (csvText) => {
     const { headers, rows: rawRows } = parseCsvRows(csvText);
     const numericHeaders = headers.filter(
@@ -823,6 +829,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     const [fdrDataError, setFdrDataError] = useState("");
     const [caseSummaryCopied, setCaseSummaryCopied] = useState(false);
     const [analysisTimestamp, setAnalysisTimestamp] = useState(null);
+    const [analysisRunMeta, setAnalysisRunMeta] = useState(null);
     const isLinkedRoute = Boolean(caseNumber);
     const [workflowStage, setWorkflowStage] = useState(
         isLinkedRoute ? "analysis" : "caseSelection"
@@ -1068,13 +1075,17 @@ export default function FDR({ caseNumber: propCaseNumber }) {
     useEffect(() => {
         if (!selectedCase?.source) {
             setAnalysisTimestamp(null);
+            setAnalysisRunMeta(null);
             return;
         }
 
         const savedAnalysis = selectedCase?.source?.fdrAnalysis;
-        const savedTimestamp = selectedCase?.source?.fdrAnalysisUpdatedAt || null;
+        const latestRun = selectedCase?.source?.fdrAnalysisLatestRun || null;
+        const savedTimestamp =
+            latestRun?.createdAt || selectedCase?.source?.fdrAnalysisUpdatedAt || null;
 
         setAnalysisTimestamp(savedTimestamp);
+        setAnalysisRunMeta(latestRun);
 
         if (!savedAnalysis) {
             setAnomalyResult(null);
@@ -1275,13 +1286,15 @@ export default function FDR({ caseNumber: propCaseNumber }) {
             const result = await runFdrAnomalyDetection(caseNumber, {
                 rows: normalizedRows,
             });
-            const updatedAt = new Date().toISOString();
+            const runMeta = result?.run_metadata || null;
+            const updatedAt = runMeta?.createdAt || new Date().toISOString();
             const normalizedResult = {
                 ...result,
                 analysis_version: result?.analysis_version || "1.0",
             };
             setAnomalyResult(normalizedResult);
             setAnalysisTimestamp(updatedAt);
+            setAnalysisRunMeta(runMeta);
             setSelectedCase((prev) =>
                 prev
                     ? {
@@ -1290,6 +1303,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                               ...prev.source,
                               fdrAnalysis: normalizedResult,
                               fdrAnalysisUpdatedAt: updatedAt,
+                              fdrAnalysisLatestRun: runMeta,
                           },
                       }
                     : prev
@@ -2036,7 +2050,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         </p>
                         {analysisTimestamp && (
                             <p className="mt-2 text-xs text-gray-500">
-                                Last analyzed: {formatAnalysisTimestamp(analysisTimestamp)}
+                                Last analyzed: {formatAnalysisRunLabel(analysisTimestamp, analysisRunMeta)}
                             </p>
                         )}
                     </div>
@@ -2234,7 +2248,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         </div>
                         {analysisTimestamp && (
                             <p className="mt-2 text-xs text-gray-500">
-                                Last analyzed: {formatAnalysisTimestamp(analysisTimestamp)}
+                                Last analyzed: {formatAnalysisRunLabel(analysisTimestamp, analysisRunMeta)}
                             </p>
                         )}
                     </div>
@@ -2895,7 +2909,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                 </div>
                 {analysisTimestamp && (
                     <div className="text-xs text-gray-500">
-                        Last analyzed: {formatAnalysisTimestamp(analysisTimestamp)}
+                        Last analyzed: {formatAnalysisRunLabel(analysisTimestamp, analysisRunMeta)}
                     </div>
                 )}
 
@@ -2915,7 +2929,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                                 <p className="text-xs text-gray-500">
                                     Latest run for {selectedCase?.id || caseNumber || "current case"}
                                     {analysisTimestamp
-                                        ? ` · ${formatAnalysisTimestamp(analysisTimestamp)}`
+                                        ? ` · ${formatAnalysisRunLabel(analysisTimestamp, analysisRunMeta)}`
                                         : ""}
                                 </p>
                             </div>

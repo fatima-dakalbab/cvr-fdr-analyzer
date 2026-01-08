@@ -2,6 +2,7 @@ const pool = require('../db/pool');
 const { mapToDbCase, mapFromDbCase } = require('../utils/case-mapper');
 const { objectExists } = require('./storage');
 const { deriveCaseStatus, deriveDataStatus } = require('../utils/case-status');
+const { getLatestFdrAnalysisRun } = require('./fdr-analysis-runs');
 
 const resolveStorageTarget = (attachment) => {
   if (!attachment || typeof attachment !== 'object') {
@@ -63,6 +64,15 @@ const hydrateCaseRow = async (row) => {
   return { ...mapped, attachments };
 };
 
+const attachLatestFdrAnalysisRun = async (caseData) => {
+  if (!caseData || !caseData.id) {
+    return caseData;
+  }
+
+  const latestRun = await getLatestFdrAnalysisRun(caseData.id);
+  return { ...caseData, fdrAnalysisLatestRun: latestRun };
+};
+
 const listCases = async () => {
    const { rows } = await pool.query(
     `SELECT * FROM cases ORDER BY last_updated DESC NULLS LAST, created_at DESC`,
@@ -77,7 +87,8 @@ const findCaseByNumber = async (caseNumber) => {
     return null;
   }
 
-  return hydrateCaseRow(rows[0]);
+  const hydrated = await hydrateCaseRow(rows[0]);
+  return attachLatestFdrAnalysisRun(hydrated);
 };
 
 const toNullIfEmpty = (value) => {
@@ -251,7 +262,8 @@ const updateCase = async (caseNumber, payload) => {
     return null;
   }
 
-  return hydrateCaseRow(rows[0]);
+  const hydrated = await hydrateCaseRow(rows[0]);
+  return attachLatestFdrAnalysisRun(hydrated);
 };
 
 const deleteCase = async (caseNumber) => {

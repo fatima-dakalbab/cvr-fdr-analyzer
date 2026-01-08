@@ -191,6 +191,24 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
     ];
   }, [caseData, caseNumber]);
 
+  const latestFdrRun = caseData?.fdrAnalysisLatestRun;
+  const latestFdrRunBy = latestFdrRun?.createdBy?.name || latestFdrRun?.createdBy?.email || '';
+  const latestFdrRunTimestamp = (() => {
+    if (!latestFdrRun?.createdAt) {
+      return '';
+    }
+
+    const date = new Date(latestFdrRun.createdAt);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+
+    return new Intl.DateTimeFormat('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date);
+  })();
+
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto space-y-6">
@@ -347,6 +365,27 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
           </div>
         )}
 
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase text-emerald-700">Latest FDR analysis run</p>
+            {latestFdrRunTimestamp ? (
+              <p className="text-sm text-emerald-900">
+                {latestFdrRunTimestamp}
+                {latestFdrRunBy ? ` by ${latestFdrRunBy}` : ''}
+              </p>
+            ) : (
+              <p className="text-sm text-emerald-700/80">No FDR analysis runs yet.</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => handleOpenModule('fdr')}
+            disabled={!latestFdrRunTimestamp}
+            className="inline-flex items-center justify-center rounded-lg border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            View results
+          </button>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {analysisCards.map(({ key, title, status, lastRun, description, evaluation }) => {
