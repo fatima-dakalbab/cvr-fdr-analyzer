@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Download, FileText, Info, Layers, Search, Sparkles } from "lucide-react";
 
 const cases = [
@@ -73,6 +74,7 @@ const exportFormats = [
 ];
 
 export default function Reports() {
+  const location = useLocation();
   const [selectedCaseNumber, setSelectedCaseNumber] = useState(cases[0].caseNumber);
   const [selectedSections, setSelectedSections] = useState(() =>
     sectionOptions.reduce(
@@ -89,6 +91,10 @@ export default function Reports() {
   const [isCaseListOpen, setIsCaseListOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const comboboxRef = useRef(null);
+  const sectionIds = useMemo(
+    () => new Set(sectionOptions.map((option) => option.id)),
+    []
+  );
 
   const selectedCase = useMemo(
     () => cases.find((caseItem) => caseItem.caseNumber === selectedCaseNumber),
@@ -108,6 +114,39 @@ export default function Reports() {
       return searchableText.includes(normalizedQuery);
     });
   }, [caseQuery]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const caseParam = params.get("case");
+    const sectionsParam = params.get("sections");
+
+    if (caseParam) {
+      const matchedCase = cases.find((caseItem) => caseItem.caseNumber === caseParam);
+      if (matchedCase) {
+        setSelectedCaseNumber(matchedCase.caseNumber);
+      }
+    }
+
+    if (sectionsParam) {
+      const requestedSections = sectionsParam
+        .split(",")
+        .map((section) => section.trim())
+        .filter(Boolean)
+        .filter((section) => sectionIds.has(section));
+
+      if (requestedSections.length) {
+        setSelectedSections(
+          sectionOptions.reduce(
+            (acc, option) => ({
+              ...acc,
+              [option.id]: requestedSections.includes(option.id),
+            }),
+            {}
+          )
+        );
+      }
+    }
+  }, [location.search, sectionIds]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
