@@ -2007,10 +2007,10 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         </svg>
                     </div>
                     <h2 className="text-2xl font-semibold text-gray-900">
-                        Export summary unavailable
+                        FDR summary unavailable
                     </h2>
                     <p className="text-sm text-gray-600 max-w-md">
-                        Run anomaly detection for this case to populate the export summary.
+                        Run anomaly detection for this case to populate the FDR summary.
                     </p>
                     <button
                         type="button"
@@ -2030,7 +2030,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                         <p className="text-sm uppercase tracking-[0.4em] text-emerald-500">
                             FDR Module
                         </p>
-                        <h1 className="text-3xl font-bold text-gray-900">Export Report</h1>
+                        <h1 className="text-3xl font-bold text-gray-900">FDR Summary</h1>
                         <p className="text-gray-600">
                             Report-ready summary for {selectedCase?.id} · {selectedCase?.title}
                         </p>
@@ -2047,6 +2047,21 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:border-emerald-200 hover:text-emerald-600"
                         >
                             Back to results
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (selectedCase?.id) {
+                                    navigate(
+                                        `/reports?case=${encodeURIComponent(
+                                            selectedCase.id
+                                        )}&sections=fdrMetrics`
+                                    );
+                                }
+                            }}
+                            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm"
+                        >
+                            Generate Investigation Report
                         </button>
                     </div>
                 </header>
@@ -2236,7 +2251,7 @@ export default function FDR({ caseNumber: propCaseNumber }) {
                             onClick={() => setWorkflowStage("export")}
                             className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm"
                         >
-                            Export Report
+                            View FDR Summary
                         </button>
                     </div>
                 </header>
