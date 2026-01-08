@@ -93,6 +93,25 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
     navigate(`/cases/${caseNumber}/${moduleKey}`);
   };
 
+  const handleViewLatestFdrResults = () => {
+    if (!caseData) {
+      setAnalysisError('Case details are still loading.');
+      return;
+    }
+
+    const hasLatestFdrRun = Boolean(
+      caseData?.fdrAnalysisLatestRun?.createdAt || caseData?.fdrAnalysisUpdatedAt || caseData?.fdrAnalysis
+    );
+
+    if (!hasLatestFdrRun) {
+      setAnalysisError('No FDR analysis run is available yet.');
+      return;
+    }
+
+    setAnalysisError('');
+    navigate(`/cases/${caseNumber}/fdr`);
+  };
+
   const handleUploadData = (moduleKey, missingTypes) => {
     if (!caseNumber) {
       return;
@@ -194,11 +213,12 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
   const latestFdrRun = caseData?.fdrAnalysisLatestRun;
   const latestFdrRunBy = latestFdrRun?.createdBy?.name || latestFdrRun?.createdBy?.email || '';
   const latestFdrRunTimestamp = (() => {
-    if (!latestFdrRun?.createdAt) {
+    const timestamp = latestFdrRun?.createdAt || caseData?.fdrAnalysisUpdatedAt;
+    if (!timestamp) {
       return '';
     }
 
-    const date = new Date(latestFdrRun.createdAt);
+    const date = new Date(timestamp);
     if (Number.isNaN(date.getTime())) {
       return '';
     }
@@ -208,6 +228,9 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
       timeStyle: 'short',
     }).format(date);
   })();
+  const hasLatestFdrRun = Boolean(
+    latestFdrRunTimestamp || caseData?.fdrAnalysisLatestRun || caseData?.fdrAnalysisUpdatedAt || caseData?.fdrAnalysis
+  );
 
   if (loading) {
     return (
@@ -365,32 +388,10 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
           </div>
         )}
 
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase text-emerald-700">Latest FDR analysis run</p>
-            {latestFdrRunTimestamp ? (
-              <p className="text-sm text-emerald-900">
-                {latestFdrRunTimestamp}
-                {latestFdrRunBy ? ` by ${latestFdrRunBy}` : ''}
-              </p>
-            ) : (
-              <p className="text-sm text-emerald-700/80">No FDR analysis runs yet.</p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => handleOpenModule('fdr')}
-            disabled={!latestFdrRunTimestamp}
-            className="inline-flex items-center justify-center rounded-lg border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            View results
-          </button>
-        </div>
-
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {analysisCards.map(({ key, title, status, lastRun, description, evaluation }) => {
             const Icon = analysisIcon[key];
-                        const ready = evaluation?.ready;
+            const ready = evaluation?.ready;
             const missingTypes = evaluation?.missingTypes || [];
             const uploadLabel = (() => {
               if (!missingTypes.length) {
@@ -407,6 +408,8 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
 
               return 'Upload recorder data';
             })();
+            const isFdrCard = key === 'fdr';
+
             return (
               <div key={key} className="border border-gray-200 rounded-xl p-4 bg-gray-50/60 flex flex-col gap-3">
                 <div className="flex items-center gap-3">
@@ -420,11 +423,39 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
                 </div>
                 <p className="text-sm text-gray-600 min-h-[60px]">{description}</p>
                 <p className="text-xs text-gray-500">{lastRun ? `Last updated ${lastRun}` : 'No runs yet'}</p>
-  {ready ? (
+                {isFdrCard ? (
+                  <div className="mt-auto space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={handleViewLatestFdrResults}
+                        disabled={!hasLatestFdrRun}
+                        className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 disabled:cursor-not-allowed disabled:bg-emerald-200"
+                      >
+                        View latest results
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenModule('fdr')}
+                        className="inline-flex items-center justify-center rounded-lg border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+                      >
+                        Open module
+                      </button>
+                    </div>
+                    {hasLatestFdrRun ? (
+                      <p className="text-xs text-gray-500">
+                        {latestFdrRunTimestamp ? `Latest run ${latestFdrRunTimestamp}` : 'Latest run available.'}
+                        {latestFdrRunBy ? ` by ${latestFdrRunBy}` : ''}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500">No analysis run yet.</p>
+                    )}
+                  </div>
+                ) : ready ? (
                   <button
                     type="button"
                     onClick={() => handleOpenModule(key)}
-                    className="mt-auto text-sm font-semibold text-emerald-600 hover:text-emerald-700"
+                    className="mt-auto text-sm font-semibold text-emerald-600 hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
                   >
                     Open module →
                   </button>
@@ -433,7 +464,7 @@ const CaseDetails = ({ caseNumber: propCaseNumber }) => {
                     <button
                       type="button"
                       onClick={() => handleUploadData(key, missingTypes)}
-                      className="text-sm font-semibold text-emerald-600 hover:text-emerald-700"
+                      className="text-sm font-semibold text-emerald-600 hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
                     >
                       {uploadLabel} →
                     </button>
